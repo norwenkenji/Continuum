@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Ядро переносимо: никакого -windows, никакого WPF и WinAPI.
+         Архитектурный тест в Continuum.Tests следит, что сюда
+         не попали ссылки на Windows-стеки. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

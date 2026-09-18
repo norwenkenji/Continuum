@@ -122,12 +122,12 @@ Windows + .NET 10 (net10.0-windows) + WPF + SQLite (Microsoft.Data.Sqlite)
 
 Два проекта. Разделение — не косметика: один csproj делает правило «Core не знает про UI» комментарием, а не проверяемым ограничением.
 
-> **Целевая структура.** Сейчас в репозитории один проект `Continuum.csproj` и `Continuum.slnx`. Разделение на `Continuum.Core` и `Continuum.App` выполняется на **шаге 0** (см. «Порядок доведения»). Команды сборки ниже до шага 0 работают без `--project`.
+> Структура из трёх проектов создана на шаге 0: `src/Continuum.Core` (`net10.0`), `src/Continuum.App` (`net10.0-windows`, на выходе `Continuum.exe`), `tests/Continuum.Tests`. Решение — классический `Continuum.sln` (не `.slnx`, чтобы открывался любым VS и SDK).
 
 ```text
-Continuum.slnx
+Continuum.sln
 │
-├── Continuum.Core        (net10.0 — переносимое ядро, без WinAPI и без WPF)
+├── src/Continuum.Core      (net10.0 — переносимое ядро, без WinAPI и без WPF)
 │   ├── Domain            Context, Session, Snapshot, Activity, Event,
 │   │                     Application, Project, RestorePlan, RestoreStep
 │   ├── Interfaces        IContextCollector, IAdapter, IRestoreStrategy,
@@ -135,21 +135,24 @@ Continuum.slnx
 │   └── Engines           ContextEngine, SessionEngine, TimelineEngine,
 │                         SnapshotEngine, StoppedEngine, RestoreEngine
 │
-└── Continuum.App         (net10.0-windows — оболочка и инфраструктура)
-    ├── Application       ContextService, SessionService, TimelineService,
-    │                     SnapshotService, RestoreService, ProjectService,
-    │                     SettingsService, DemoService
-    ├── Infrastructure
-    │   ├── Database      SQLite, миграции через PRAGMA user_version
-    │   ├── Windows       ProcessCollector, WindowCollector, SystemEvents
-    │   ├── Files         FileActivityCollector, RecentDocuments
-    │   ├── Git           GitClient (обёртка над git.exe)
-    │   ├── Browser       ChromeTitleCollector, ChromeUrlCollector (UIA)
-    │   ├── Terminal      TerminalCollector (CommandLine через CIM)
-    │   └── Privacy       PrivacyFilter, SecretSanitizer (реализация интерфейсов Core)
-    ├── Adapters          VSCode, Chrome, Git, Terminal  →  растущий список
-    └── Presentation      MainWindow, TimelineWindow, StoppedWindow,
-                          SettingsWindow, FirstRunDialog, TrayIcon
+├── src/Continuum.App       (net10.0-windows — оболочка и инфраструктура)
+│   ├── Application       ContextService, SessionService, TimelineService,
+│   │                     SnapshotService, RestoreService, ProjectService,
+│   │                     SettingsService, DemoService
+│   ├── Infrastructure
+│   │   ├── Database      SQLite, миграции через PRAGMA user_version
+│   │   ├── Windows       ProcessCollector, WindowCollector, SystemEvents
+│   │   ├── Files         FileActivityCollector, RecentDocuments
+│   │   ├── Git           GitClient (обёртка над git.exe)
+│   │   ├── Browser       ChromeTitleCollector, ChromeUrlCollector (UIA)
+│   │   ├── Terminal      TerminalCollector (CommandLine через CIM)
+│   │   └── Privacy       PrivacyFilter, SecretSanitizer (реализация интерфейсов Core)
+│   ├── Adapters          VSCode, Chrome, Git, Terminal  →  растущий список
+│   └── Presentation      MainWindow, TimelineWindow, StoppedWindow,
+│                         SettingsWindow, FirstRunDialog, TrayIcon
+│
+└── tests/Continuum.Tests   (net10.0-windows, xunit — включая архитектурный тест,
+                             что Core не ссылается на Windows-стеки)
 ```
 
 ### Направление зависимостей
@@ -524,33 +527,24 @@ DemoProject/
 
 Требования для разработки: .NET 10 SDK.
 
-**Сейчас (один проект, до шага 0):**
-
-```powershell
-dotnet run                 # запуск из исходников
-dotnet publish -c Release -r win-x64 --self-contained true -o publish
-```
-
-**После шага 0 (два проекта):**
-
 ```powershell
 # запуск из исходников
-dotnet run --project Continuum.App
+dotnet run --project src/Continuum.App
 
-# юнит-тесты (появятся вместе с Continuum.Tests на шаге 8)
+# юнит-тесты
 dotnet test
 
 # ДЕМО-СБОРКА (рекомендуется): папка, копирование без установки
-dotnet publish Continuum.App -c Release -r win-x64 --self-contained true -o publish
+dotnet publish src/Continuum.App -c Release -r win-x64 --self-contained true -o publish
 
 # single-file — только если temp-распаковка гарантированно разрешена
-dotnet publish Continuum.App -c Release -r win-x64 --self-contained true `
+dotnet publish src/Continuum.App -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
 **Почему для защиты folder-publish.** Single-file WPF распаковывает нативные библиотеки (в том числе `e_sqlite3.dll`) во временную папку: нужен `IncludeNativeLibrariesForSelfExtract=true`, иначе на чистой машине будет «unable to load e_sqlite3» прямо во время демонстрации. Распаковку в temp иногда режет AppLocker или антивирус в учебных классах, а первый запуск медленный. Folder-publish сохраняет сценарий «скопировал папку → запустил» и убирает все три риска.
 
-Про `.slnx`: формат решения `.slnx` требует свежего SDK/Visual Studio. Если сборка планируется на чужой машине с неизвестной версией инструментария — стоит завести параллельно классический `.sln`.
+Решение — классический `Continuum.sln` (выбрано на шаге 0): открывается любым Visual Studio и любым SDK, в отличие от `.slnx`.
 
 После первого запуска данные здесь:
 
@@ -602,11 +596,11 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: голый WPF-шаблон (`MainWindow` пуст), логики нет, проект один (`Continuum.csproj`).
+Сейчас: **шаг 0 выполнен** — решение разделено на `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, на выходе `Continuum.exe`) и `tests/Continuum.Tests` (xunit, 4 теста зелёные). DI-композиция (`CompositionRoot`), пути `%LOCALAPPDATA%\Continuum` (`AppPaths`), `IClock`/`SystemClock` и контракты privacy-конвейера (`IPrivacyFilter`, `ISanitizer`, `IExclusionSet`, `Observable`) на месте. `MainWindow` запускается через DI, логики в нём пока нет.
 
-Документация приведена в согласованное состояние: `readme.md` (схема БД v1, 11 шагов, бюджет ресурсов, prior art) и нормативные спецификации в `docs/specs/`.
+Документация в согласованном состоянии: `readme.md` — источник истины по скоупу, нормативные спецификации — в `docs/specs/`.
 
-Следующий шаг — **шаг 0**: разделить `Continuum.Core` (`net10.0`) и `Continuum.App` (`net10.0-windows`), поднять DI-хост, пути и `IClock`.
+Следующий шаг — **шаг 1**: доменные модели, SQLite в `%LOCALAPPDATA%\Continuum\`, `PRAGMA user_version`, первая миграция, реализация privacy-конвейера до первой записи в БД.
 
 ---
 
