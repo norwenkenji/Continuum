@@ -596,11 +596,13 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 0 выполнен** — решение разделено на `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, на выходе `Continuum.exe`) и `tests/Continuum.Tests` (xunit, 4 теста зелёные). DI-композиция (`CompositionRoot`), пути `%LOCALAPPDATA%\Continuum` (`AppPaths`), `IClock`/`SystemClock` и контракты privacy-конвейера (`IPrivacyFilter`, `ISanitizer`, `IExclusionSet`, `Observable`) на месте. `MainWindow` запускается через DI, логики в нём пока нет.
+Сейчас: **шаг 1 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 92 теста зелёные).
+
+Шаг 1 дал: доменные модели (`Session`, `Event`, `Project`, `ApplicationInfo`, `FileActivity`, `Snapshot` + `GitState`/`TerminalState`/`OpenFile`/`BrowserTab`, `RestorePlan` + `RestoreStep`); хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` — `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (SQL-скрипты встраиваются в сборку: `Infrastructure/Database/Migrations/V001__init.sql`), первая миграция — схема v1 из раздела «Схема БД» плюс уникальный индекс `ux_applications_name_exe` (`exe_path NOT NULL DEFAULT ''`, иначе upsert по `(name, exe_path)` не работает — SQLite считает NULL-ы различными); `SqliteRepository` (сессии, append-only события, file_activity, upsert проектов/приложений, снапшот с дочерними наборами в одной транзакции, настройки); инициализация БД до показа главного окна; реализацию privacy-конвейера (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter` по `docs/specs/privacy-pipeline.md`) — правила «никогда не записывать» (§4.3) появятся вместе с окном настроек на шаге 9.
 
 Документация в согласованном состоянии: `readme.md` — источник истины по скоупу, нормативные спецификации — в `docs/specs/`.
 
-Следующий шаг — **шаг 1**: доменные модели, SQLite в `%LOCALAPPDATA%\Continuum\`, `PRAGMA user_version`, первая миграция, реализация privacy-конвейера до первой записи в БД.
+Следующий шаг — **шаг 2**: мониторинг фокуса и приложений (WinAPI, события `app_focused`/`app_started`/`app_exited`, прохождение privacy-конвейера до первой записи).
 
 ---
 

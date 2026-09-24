@@ -21,7 +21,7 @@
   - `AssemblyInfo.cs` → `src/Continuum.App/Properties/AssemblyInfo.cs`
 - Решения (коротко):
   1. Отступление в `SystemClockTests`: у `DateTimeOffset` нет свойства `Kind`, проверка выполнена через `now.UtcDateTime.Kind` и дополнена проверкой `now.Offset == TimeSpan.Zero`. Смысл теста не изменён, принято.
-  2. Запрещённые зоны (`Continuum.csproj`, `Continuum.slnx`, `bin/`, `obj/`, документация) не тронуты — проверено координатором по `git status` и дереву файлов.
+  2. Запрещённые зоны (`Continuum.csproj`, `Continuum.slnx`, `bin/`, `obj/`, документация) не тронуты — проверено по `git status` и дереву файлов.
   3. Комментарии в коде — по-русски, сигнатуры и неймспейсы из задания не изменены.
 
 ## Поправлено после агента
