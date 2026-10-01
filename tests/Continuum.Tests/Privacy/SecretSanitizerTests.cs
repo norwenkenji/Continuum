@@ -51,6 +51,44 @@ public class SecretSanitizerTests
         Assert.Contains("***", result);
     }
 
+    [Theory]
+    [InlineData("ghp_")]
+    [InlineData("gho_")]
+    [InlineData("ghs_")]
+    [InlineData("ghu_")]
+    [InlineData("ghr_")]
+    public void CommandLine_github_token_family_is_masked(string prefix)
+    {
+        var token = prefix + new string('a', 20); // обновлённый §5.1: gh[opsur]_{20,}
+
+        var result = _sanitizer.Sanitize($"tool {token} --verbose", ObservableKind.CommandLine);
+
+        Assert.DoesNotContain(token, result);
+        Assert.Contains("***", result);
+    }
+
+    [Fact]
+    public void CommandLine_github_pat_40_chars_is_masked()
+    {
+        var token = "ghp_" + new string('b', 40); // длиннее старых 36 - новый диапазон {20,}
+
+        var result = _sanitizer.Sanitize($"git clone https://{token}@github.com/user/repo", ObservableKind.CommandLine);
+
+        Assert.DoesNotContain(token, result);
+        Assert.Contains("***", result);
+    }
+
+    [Fact]
+    public void CommandLine_github_fine_grained_pat_is_masked()
+    {
+        var token = "github_pat_" + new string('c', 22) + "_AB12"; // [A-Za-z0-9_]{20,}
+
+        var result = _sanitizer.Sanitize($"curl -H \"Authorization: Bearer {token}\" https://api.github.com", ObservableKind.CommandLine);
+
+        Assert.DoesNotContain(token, result);
+        Assert.Contains("***", result);
+    }
+
     [Fact]
     public void CommandLine_pem_private_key_block_is_masked()
     {

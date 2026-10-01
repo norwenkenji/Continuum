@@ -3,11 +3,11 @@ using Continuum.Core.Domain;
 namespace Continuum.Core.Interfaces;
 
 /// <summary>
-/// Хранилище Continuum. Единственная реализация — SQLite
+/// Хранилище Continuum. Единственная реализация - SQLite
 /// (Continuum.App/Infrastructure/Database/SqliteRepository).
-/// Времена — DateTimeOffset UTC; в БД хранятся unix-секунды.
+/// Времена - DateTimeOffset UTC; в БД хранятся unix-секунды.
 /// Строковые ключи (root_path, name) должны приходить уже нормализованными:
-/// сравнение в БД точное, нормализация — забота вызывающего.
+/// сравнение в БД точное, нормализация - забота вызывающего.
 /// </summary>
 public interface IRepository
 {
@@ -19,7 +19,7 @@ public interface IRepository
     /// <summary>Закрывает сессию: ended_at, status = ended, end_reason.</summary>
     Task EndSessionAsync(long sessionId, DateTimeOffset endedAt, SessionEndReason reason, CancellationToken ct = default);
 
-    /// <summary>Висячие сессии (ended_at IS NULL) — для crash-recovery при старте.</summary>
+    /// <summary>Висячие сессии (ended_at IS NULL) - для crash-recovery при старте.</summary>
     Task<IReadOnlyList<Session>> GetOpenSessionsAsync(CancellationToken ct = default);
 
     /// <summary>Последняя по времени сессия (для главного окна).</summary>
@@ -29,7 +29,7 @@ public interface IRepository
 
     Task AppendEventAsync(Event ev, CancellationToken ct = default);
 
-    /// <summary>События сессии по возрастанию времени — хронология.</summary>
+    /// <summary>События сессии по возрастанию времени - хронология.</summary>
     Task<IReadOnlyList<Event>> GetSessionEventsAsync(long sessionId, CancellationToken ct = default);
 
     // Активность файлов

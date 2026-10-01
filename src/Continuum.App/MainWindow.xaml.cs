@@ -1,24 +1,43 @@
-﻿using System.Text;
+using System.ComponentModel;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace Continuum
 {
     /// <summary>
-    /// Interaction logic for MainWindow.xaml
+    /// Главное окно. Закрытие крестиком прячет окно в трей - рекордер
+    /// продолжает работать фоном; настоящий выход только через AllowClose()
+    /// (меню трея «Выход»).
     /// </summary>
     public partial class MainWindow : Window
     {
+        private bool _allowClose;
+
         public MainWindow()
         {
             InitializeComponent();
+        }
+
+        /// <summary>Разрешает настоящее закрытие (выход из приложения).</summary>
+        public void AllowClose() => _allowClose = true;
+
+        /// <summary>Возвращает окно из трея.</summary>
+        public void ShowFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (!_allowClose)
+            {
+                e.Cancel = true;
+                Hide();
+                return;
+            }
+
+            base.OnClosing(e);
         }
     }
 }

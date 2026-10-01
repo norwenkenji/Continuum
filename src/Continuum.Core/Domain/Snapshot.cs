@@ -2,7 +2,7 @@ namespace Continuum.Core.Domain;
 
 /// <summary>
 /// Точка состояния контекста (snapshots). Реляционные таблицы хранят то,
-/// по чему есть запросы; остальное — в SummaryJson. SchemaVersion версионирует
+/// по чему есть запросы; остальное - в SummaryJson. SchemaVersion версионирует
 /// формат SummaryJson, а не схему БД (она версионируется через PRAGMA user_version).
 /// </summary>
 public sealed record Snapshot(
@@ -46,7 +46,7 @@ public sealed record TerminalState(
     string? Cwd,
     TerminalSource Source);
 
-/// <summary>Открытый файл на момент снапшота (open_files). Line — для code -g path:line.</summary>
+/// <summary>Открытый файл на момент снапшота (open_files). Line - для code -g path:line.</summary>
 public sealed record OpenFile(
     long Id,
     long SnapshotId,

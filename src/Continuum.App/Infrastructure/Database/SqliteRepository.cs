@@ -11,7 +11,7 @@ namespace Continuum.Infrastructure.Database;
 
 /// <summary>
 /// Хранилище поверх SQLite (Microsoft.Data.Sqlite, без EF).
-/// Времена — unix-секунды UTC; enum — snake_case через <see cref="EnumCodec"/>.
+/// Времена - unix-секунды UTC; enum - snake_case через <see cref="EnumCodec"/>.
 /// Снапшот пишется со всеми дочерними наборами в одной транзакции.
 /// </summary>
 public sealed class SqliteRepository : IRepository
@@ -204,7 +204,7 @@ public sealed class SqliteRepository : IRepository
     {
         await using var connection = _factory.OpenConnection();
         await using var command = connection.CreateCommand();
-        // exe_path в БД — NOT NULL DEFAULT '': уникальность (name, exe_path)
+        // exe_path в БД - NOT NULL DEFAULT '': уникальность (name, exe_path)
         // работает, потому что SQLite считает NULL различными
         command.CommandText = """
             INSERT INTO applications (name, exe_path, adapter_key, first_seen, last_seen)

@@ -6,7 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <!-- Имя сборки и exe — Continuum: сценарий демо «запустил Continuum.exe» -->
+    <!-- NotifyIcon для трея - из фреймворка, без сторонних пакетов -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Имя сборки и exe - Continuum: сценарий демо «запустил Continuum.exe» -->
     <AssemblyName>Continuum</AssemblyName>
     <RootNamespace>Continuum</RootNamespace>
   </PropertyGroup>

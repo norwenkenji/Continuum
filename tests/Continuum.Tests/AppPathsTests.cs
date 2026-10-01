@@ -17,7 +17,7 @@ public class AppPathsTests
         // Assert: путь начинается с LocalApplicationData
         Assert.StartsWith(localAppData, dataDirectory);
 
-        // Assert: имя последнего каталога в пути — Continuum
+        // Assert: имя последнего каталога в пути - Continuum
         var lastDirectoryName = new DirectoryInfo(dataDirectory).Name;
         Assert.Equal("Continuum", lastDirectoryName);
     }

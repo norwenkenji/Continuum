@@ -4,7 +4,7 @@
 --
 -- Правила миграций проекта:
 --   - только CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS;
---   - PRAGMA user_version здесь НЕ выставляется — это делает MigrationRunner
+--   - PRAGMA user_version здесь НЕ выставляется - это делает MigrationRunner
 --     после коммита транзакции миграции;
 --   - DROP запрещён: миграции только добавляют.
 -- ============================================================================
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- Приложения.
 -- ОСОЗНАННОЕ ОТСТУПЛЕНИЕ от драфта readme: exe_path объявлен
--- TEXT NOT NULL DEFAULT '' (в драфте — nullable).
+-- TEXT NOT NULL DEFAULT '' (в драфте - nullable).
 -- Причина: SqliteRepository.UpsertApplicationAsync уже использует
 -- ON CONFLICT(name, exe_path), а с nullable exe_path уникальность
 -- не работает, потому что SQLite считает NULL-ы различными.
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS events (
 --       file_changed | file_opened | git_commit | git_branch_switch
 --       terminal_activity | browser_navigate | system_sleep | system_wake
 
--- «Файлы за сессию» — event-уровень, не snapshot-уровень
+-- «Файлы за сессию» - event-уровень, не snapshot-уровень
 CREATE TABLE IF NOT EXISTS file_activity (
     id          INTEGER PRIMARY KEY,
     session_id  INTEGER NOT NULL REFERENCES sessions(id),

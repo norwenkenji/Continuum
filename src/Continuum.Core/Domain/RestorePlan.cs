@@ -4,7 +4,7 @@ namespace Continuum.Core.Domain;
 /// Упорядоченный план восстановления (restore_plans + restore_steps).
 /// Три обязательных свойства: порядок шагов значим, план идемпотентен,
 /// поддерживает dry-run. Результат каждого шага фиксируется.
-/// Персистентность появится на шаге 6 (Restore Engine) — до тех пор
+/// Персистентность появится на шаге 6 (Restore Engine) - до тех пор
 /// записи создаёт только RestoreService.
 /// </summary>
 public sealed record RestorePlan(
@@ -19,7 +19,7 @@ public sealed record RestorePlan(
     public IReadOnlyList<RestoreStep> Steps { get; init; } = [];
 }
 
-/// <summary>Один шаг плана восстановления (restore_steps). Seq — порядок выполнения.</summary>
+/// <summary>Один шаг плана восстановления (restore_steps). Seq - порядок выполнения.</summary>
 public sealed record RestoreStep(
     long Id,
     long PlanId,

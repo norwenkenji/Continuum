@@ -14,7 +14,7 @@ namespace Continuum.Infrastructure.Privacy;
 /// </summary>
 public sealed class ExclusionSet : IExclusionSet
 {
-    // §4.1: менеджеры паролей + собственное приложение — не наблюдаются никогда
+    // §4.1: менеджеры паролей + собственное приложение - не наблюдаются никогда
     private static readonly string[] DefaultApplications =
     [
         "1password", "keepass", "bitwarden", "enpass", "dashlane",
@@ -25,7 +25,7 @@ public sealed class ExclusionSet : IExclusionSet
     // Имена процессов без расширения
     private readonly HashSet<string> _applicationNames = new(StringComparer.OrdinalIgnoreCase);
 
-    // Полные нормализованные пути exe — «путь важнее имени» (§4.1)
+    // Полные нормализованные пути exe - «путь важнее имени» (§4.1)
     private readonly HashSet<string> _applicationExePaths = new(StringComparer.OrdinalIgnoreCase);
 
     // Нормализованные директории без завершающего разделителя
@@ -38,7 +38,7 @@ public sealed class ExclusionSet : IExclusionSet
             AddApplication(application);
         }
 
-        // §4.2: системные хранилища секретов — исключены всегда, неудаляемо
+        // §4.2: системные хранилища секретов - исключены всегда, неудаляемо
         AddDirectory(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Credentials"));
         AddDirectory(Path.Combine(
@@ -47,6 +47,11 @@ public sealed class ExclusionSet : IExclusionSet
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh"));
         AddDirectory(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gnupg"));
+        // Контейнеры UWP - «%APPDATA%\..\Local\Packages\*» из спецификации:
+        // %LOCALAPPDATA% и есть %APPDATA%\..\Local, а префиксное сравнение
+        // покрывает «\*» целиком
+        AddDirectory(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages"));
 
         if (extraApplications is not null)
         {
@@ -76,7 +81,7 @@ public sealed class ExclusionSet : IExclusionSet
 
         if (!string.IsNullOrWhiteSpace(exePath))
         {
-            // По имени файла exe — ловит случаи вроде «KeePass.exe» в произвольном каталоге
+            // По имени файла exe - ловит случаи вроде «KeePass.exe» в произвольном каталоге
             var exeName = StripExtension(exePath);
             if (!string.IsNullOrEmpty(exeName) && _applicationNames.Contains(exeName))
             {
@@ -119,7 +124,7 @@ public sealed class ExclusionSet : IExclusionSet
     {
         // Правила §4.3 (BY_APP_NAME / BY_HOST / BY_PATH_SUBSTR) появятся вместе
         // с окном настроек (шаг 9 в readme). Контракт уже подключён в
-        // PrivacyFilter, но список правил пока пуст — ничего не запрещаем.
+        // PrivacyFilter, но список правил пока пуст - ничего не запрещаем.
         return false;
     }
 

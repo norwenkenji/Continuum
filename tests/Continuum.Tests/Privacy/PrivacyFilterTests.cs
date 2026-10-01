@@ -47,7 +47,7 @@ public class PrivacyFilterTests
         Assert.False(filter.Allow(MakeObservable(ObservableKind.FilePath, inside, "code")));
         Assert.False(filter.Allow(MakeObservable(ObservableKind.Cwd, inside, "code")));
 
-        // Заголовок окна — не путь: правило директорий к нему не применяется
+        // Заголовок окна - не путь: правило директорий к нему не применяется
         Assert.True(filter.Allow(MakeObservable(ObservableKind.WindowTitle, inside, "code")));
 
         // Путь снаружи исключённой директории пропускается
@@ -103,7 +103,7 @@ public class PrivacyFilterTests
         Assert.False(filter.Allow(MakeObservable(ObservableKind.FilePath, "C:\\work\\project\\a.txt", "code")));
         Assert.False(filter.Allow(MakeObservable(ObservableKind.FilePath, "C:\\work", "code")));
 
-        // Граница каталога: похожий префикс без разделителя — НЕ исключение
+        // Граница каталога: похожий префикс без разделителя - НЕ исключение
         Assert.True(filter.Allow(MakeObservable(ObservableKind.FilePath, "C:\\workspace-secret\\a.txt", "code")));
     }
 
@@ -112,6 +112,6 @@ public class PrivacyFilterTests
     {
         var filter = new PrivacyFilter(new ExclusionSet());
 
-        Assert.True(filter.Allow(MakeObservable(ObservableKind.WindowTitle, "Continuum — MainWindow", "code")));
+        Assert.True(filter.Allow(MakeObservable(ObservableKind.WindowTitle, "Continuum - MainWindow", "code")));
     }
 }

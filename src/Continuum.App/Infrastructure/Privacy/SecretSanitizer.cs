@@ -8,7 +8,7 @@ namespace Continuum.Infrastructure.Privacy;
 /// <summary>
 /// Маскирует секреты в командных строках и URL до записи в БД.
 /// Спецификация: docs/specs/privacy-pipeline.md, §5.
-/// Маска всегда ровно «***» — длина секрета в выходе не раскрывается.
+/// Маска всегда ровно «***» - длина секрета в выходе не раскрывается.
 /// Остальные виды Observable возвращаются без изменений (§5.3).
 /// </summary>
 public sealed class SecretSanitizer : ISanitizer
@@ -21,7 +21,7 @@ public sealed class SecretSanitizer : ISanitizer
 
     // §5.1: пары «параметр=значение» (--password=X, AWS_SECRET_ACCESS_KEY=X).
     // Имя параметра сохраняется, значение заменяется маской.
-    // Lookahead проверяет наличие ключевого слова в любом месте имени —
+    // Lookahead проверяет наличие ключевого слова в любом месте имени -
     // в том числе в самом начале («password=...»).
     private static readonly Regex SensitiveAssignment = new(
         @"(?<name>(?=[A-Za-z0-9_-]*(?:password|passwd|pwd|pass|secret|token|api[-_]?key|access[-_]?key|auth|credentials?))[A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(?<value>""[^""]*""|'[^']*'|[^\s]+)",
@@ -40,14 +40,15 @@ public sealed class SecretSanitizer : ISanitizer
         RegexOptions.None,
         RegexTimeout);
 
-    // §5.1: токены по форме. Список — данные, а не хардкод: пользовательские
+    // §5.1: токены по форме. Список - данные, а не хардкод: пользовательские
     // паттерны добавляются через конструктор, без правки кода.
     private static readonly Regex[] DefaultTokenPatterns =
     [
-        new(@"ghp_[A-Za-z0-9]{36}", RegexOptions.IgnoreCase, RegexTimeout),  // GitHub PAT
-        new(@"sk-[A-Za-z0-9]{20,}", RegexOptions.IgnoreCase, RegexTimeout),  // API-ключ по форме
-        new(@"xox[baprs]-[A-Za-z0-9-]+", RegexOptions.None, RegexTimeout),   // Slack-токен
-        new(@"AKIA[0-9A-Z]{16}", RegexOptions.None, RegexTimeout),           // AWS access key
+        new(@"gh[opsur]_[A-Za-z0-9]{20,}", RegexOptions.IgnoreCase, RegexTimeout),   // GitHub-токены: ghp_/gho_/ghs_/ghu_/ghr_
+        new(@"github_pat_[A-Za-z0-9_]{20,}", RegexOptions.IgnoreCase, RegexTimeout), // fine-grained GitHub PAT
+        new(@"sk-[A-Za-z0-9]{20,}", RegexOptions.IgnoreCase, RegexTimeout),          // API-ключ по форме
+        new(@"xox[baprs]-[A-Za-z0-9-]+", RegexOptions.None, RegexTimeout),           // Slack-токен
+        new(@"AKIA[0-9A-Z]{16}", RegexOptions.None, RegexTimeout),                   // AWS access key
     ];
 
     // §5.2: query-параметры, чьи значения маскируются (имя параметра сохраняется)
@@ -82,7 +83,7 @@ public sealed class SecretSanitizer : ISanitizer
         {
             ObservableKind.CommandLine => SanitizeCommandLine(value),
             ObservableKind.Url => SanitizeUrl(value),
-            // §5.3: пути и заголовки не маскируются — они и есть ценность контекста
+            // §5.3: пути и заголовки не маскируются - они и есть ценность контекста
             _ => value,
         };
     }
@@ -92,7 +93,7 @@ public sealed class SecretSanitizer : ISanitizer
         var result = value;
 
         // Порядок важен: сначала PEM-блок целиком, затем пары параметр/значение,
-        // в конце — голые токены по форме (часть из них уже накрыта флагами)
+        // в конце - голые токены по форме (часть из них уже накрыта флагами)
         result = PemBlock.Replace(result, Mask);
         result = SensitiveAssignment.Replace(result, "${name}=" + Mask);
         result = SensitiveFlag.Replace(result, "${flag} " + Mask);
@@ -154,7 +155,7 @@ public sealed class SecretSanitizer : ISanitizer
             var equalsIndex = parts[i].IndexOf('=');
             if (equalsIndex <= 0)
             {
-                continue; // параметр без значения — не секрет
+                continue; // параметр без значения - не секрет
             }
 
             var name = parts[i][..equalsIndex];

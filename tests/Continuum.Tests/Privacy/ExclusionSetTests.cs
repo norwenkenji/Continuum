@@ -56,12 +56,12 @@ public class ExclusionSetTests
     {
         var set = new ExclusionSet(extraApplications: ["C:\\Tools\\SecretTool\\SecretTool.exe"]);
 
-        // Тот самый путь — исключён
+        // Тот самый путь - исключён
         Assert.True(set.IsApplicationExcluded("anything", "C:\\Tools\\SecretTool\\SecretTool.exe"));
         // Сравнение регистронезависимое
         Assert.True(set.IsApplicationExcluded("anything", "c:\\tools\\secrettool\\secrettool.exe"));
 
-        // Имя само по себе и тот же exe в другом каталоге — не исключены:
+        // Имя само по себе и тот же exe в другом каталоге - не исключены:
         // «путь важнее имени» (§4.1)
         Assert.False(set.IsApplicationExcluded("SecretTool", null));
         Assert.False(set.IsApplicationExcluded("anything", "C:\\Other\\SecretTool.exe"));
@@ -96,5 +96,20 @@ public class ExclusionSetTests
 
         // Дефолты при этом не исчезают
         Assert.True(set.IsApplicationExcluded("keepass", null));
+    }
+
+    [Fact]
+    public void Uwp_packages_directory_is_excluded_by_default()
+    {
+        var set = new ExclusionSet();
+        var packages = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+
+        // §4.2: «%APPDATA%\..\Local\Packages\*» - сам каталог и любой подкаталог
+        Assert.True(set.IsDirectoryExcluded(packages));
+        Assert.True(set.IsDirectoryExcluded(Path.Combine(packages, "SomeUwpApp_abc123def456", "LocalState", "file.dat")));
+
+        // Граница каталога сохраняется: похожий префикс - не исключение
+        Assert.False(set.IsDirectoryExcluded(packages + "-other"));
     }
 }

@@ -58,7 +58,7 @@ public class MigrationV001Tests : IDisposable
         var initializer = new DatabaseInitializer(new SqliteConnectionFactory(DatabasePath));
 
         initializer.Initialize();
-        var secondRun = initializer.Initialize(); // повторный запуск — без ошибок
+        var secondRun = initializer.Initialize(); // повторный запуск - без ошибок
 
         Assert.Empty(secondRun);
 
@@ -74,7 +74,7 @@ public class MigrationV001Tests : IDisposable
 
         using var connection = new SqliteConnectionFactory(DatabasePath).OpenConnection();
 
-        // Повтор (name, exe_path) обязан падать по ux_applications_name_exe —
+        // Повтор (name, exe_path) обязан падать по ux_applications_name_exe -
         // именно на него опирается ON CONFLICT(name, exe_path) в UpsertApplicationAsync
         InsertApplication(connection, "code", "C:\\Apps\\code.exe");
         Assert.Throws<SqliteException>(() => InsertApplication(connection, "code", "C:\\Apps\\code.exe"));
@@ -97,7 +97,7 @@ public class MigrationV001Tests : IDisposable
     private static string[] QueryNames(SqliteConnection connection, string type)
     {
         using var command = connection.CreateCommand();
-        // type — внутренняя константа теста ("table"/"index"), интерполяция безопасна
+        // type - внутренняя константа теста ("table"/"index"), интерполяция безопасна
         command.CommandText =
             $"SELECT name FROM sqlite_master WHERE type = '{type}' AND name NOT LIKE 'sqlite_%' ORDER BY name;";
 

@@ -5,10 +5,10 @@ using Continuum.Core.Abstractions;
 namespace Continuum.Infrastructure.Privacy;
 
 /// <summary>
-/// Решает, разрешено ли наблюдение. false — отбросить целиком,
+/// Решает, разрешено ли наблюдение. false - отбросить целиком,
 /// не записывать ничего (ни события, ни поля в снапшоте).
 /// Порядок правил: docs/specs/privacy-pipeline.md, §2; секретные
-/// файловые артефакты — §5.3.
+/// файловые артефакты - §5.3.
 /// </summary>
 public sealed class PrivacyFilter : IPrivacyFilter
 {
@@ -24,7 +24,7 @@ public sealed class PrivacyFilter : IPrivacyFilter
     {
         ArgumentNullException.ThrowIfNull(o);
 
-        // 1. Исключённое приложение — отбрасываются все виды наблюдений (§4.1)
+        // 1. Исключённое приложение - отбрасываются все виды наблюдений (§4.1)
         if (!string.IsNullOrEmpty(o.ApplicationName) || !string.IsNullOrEmpty(o.ApplicationExePath))
         {
             if (_exclusions.IsApplicationExcluded(o.ApplicationName ?? string.Empty, o.ApplicationExePath))
@@ -33,7 +33,7 @@ public sealed class PrivacyFilter : IPrivacyFilter
             }
         }
 
-        // 2. Исключённая директория — только для видов, где Value является путём (§4.2)
+        // 2. Исключённая директория - только для видов, где Value является путём (§4.2)
         if (o.Kind is ObservableKind.FilePath or ObservableKind.Cwd
             && !string.IsNullOrEmpty(o.Value)
             && _exclusions.IsDirectoryExcluded(o.Value))
@@ -47,7 +47,7 @@ public sealed class PrivacyFilter : IPrivacyFilter
             return false;
         }
 
-        // 4. Секретный файловый артефакт (§5.3) — отбрасывается событие целиком
+        // 4. Секретный файловый артефакт (§5.3) - отбрасывается событие целиком
         if (o.Kind is ObservableKind.FilePath && IsSecretArtifact(o.Value))
         {
             return false;

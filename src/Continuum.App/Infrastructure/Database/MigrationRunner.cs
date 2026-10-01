@@ -6,14 +6,14 @@ using Microsoft.Data.Sqlite;
 namespace Continuum.Infrastructure.Database;
 
 /// <summary>
-/// Применяет миграции к SQLite. Версия схемы — PRAGMA user_version
+/// Применяет миграции к SQLite. Версия схемы - PRAGMA user_version
 /// (без EF, миграции пишутся SQL-скриптами вручную).
 ///
 /// Правила:
 /// - применяются только миграции с Version &gt; user_version, по возрастанию;
-/// - каждая миграция — в своей транзакции;
+/// - каждая миграция - в своей транзакции;
 /// - user_version обновляется ПОСЛЕ коммита транзакции миграции;
-/// - дубликаты версий — ошибка конфигурации, не применяемых молча.
+/// - дубликаты версий - ошибка конфигурации, не применяемых молча.
 /// </summary>
 public sealed class MigrationRunner
 {
@@ -66,7 +66,7 @@ public sealed class MigrationRunner
     private static void SetUserVersion(SqliteConnection connection, int version)
     {
         using var command = connection.CreateCommand();
-        // version — int по контракту Migration, интерполяция безопасна
+        // version - int по контракту Migration, интерполяция безопасна
         command.CommandText = $"PRAGMA user_version = {version};";
         command.ExecuteNonQuery();
     }

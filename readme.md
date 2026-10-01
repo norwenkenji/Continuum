@@ -2,7 +2,7 @@
 
 ### Personal Work Context Engine
 
-**Continuum — локальная система сохранения, анализа и восстановления рабочего контекста.**
+**Continuum - локальная система сохранения, анализа и восстановления рабочего контекста.**
 
 > Компьютер умеет восстанавливать открытые окна. Continuum отвечает на другой вопрос: **«Чем человек занимался и на каком этапе остановился?»**
 
@@ -63,15 +63,15 @@ Collectors → Privacy pipeline → Context Engine → Session / Timeline / Snap
 
 Три базовые сущности:
 
-- **Context** — текущее состояние окружения (приложения, окна, пути файлов, URL, терминалы, проекты).
-- **Session** — период непрерывной работы с формальными границами. Отвечает: *что происходило?*
-- **Snapshot** — точка состояния. Отвечает: *как выглядел контекст в конкретный момент?*
+- **Context** - текущее состояние окружения (приложения, окна, пути файлов, URL, терминалы, проекты).
+- **Session** - период непрерывной работы с формальными границами. Отвечает: *что происходило?*
+- **Snapshot** - точка состояния. Отвечает: *как выглядел контекст в конкретный момент?*
 
 Поверх них:
 
-- **Timeline** — append-only история событий сессии;
-- **«Где я остановился?»** — детерминированный ответ: последний проект, последний файл, последний коммит, незакоммиченное после коммита, последний терминал, статус работы;
-- **RestorePlan** — упорядоченный план восстановления с результатом каждого шага (`success / partial / failed`).
+- **Timeline** - append-only история событий сессии;
+- **«Где я остановился?»** - детерминированный ответ: последний проект, последний файл, последний коммит, незакоммиченное после коммита, последний терминал, статус работы;
+- **RestorePlan** - упорядоченный план восстановления с результатом каждого шага (`success / partial / failed`).
 
 В MVP всё это **детерминированно, без LLM**. Результат воспроизводим и проверяем юнит-тестами.
 
@@ -82,12 +82,12 @@ Collectors → Privacy pipeline → Context Engine → Session / Timeline / Snap
 Зафиксированы и не обсуждаются в рамках MVP:
 
 1. **Обычный пользователь.** Работа без админских прав. Нет UAC, служб, драйверов, записи в HKLM, системных каталогов. Чтение HKLM разрешено (поиск путей приложений).
-2. **Portable / zero-setup.** Скопировал папку → запустил `Continuum.exe` → работает. Continuum обязан запускаться и на машине без VS Code, git и Chrome: отсутствие инструмента — это `partial`, а не падение.
+2. **Portable / zero-setup.** Скопировал папку → запустил `Continuum.exe` → работает. Continuum обязан запускаться и на машине без VS Code, git и Chrome: отсутствие инструмента - это `partial`, а не падение.
 3. **User-isolated.** Данные в `%LOCALAPPDATA%\Continuum\`. Профили Windows не смешиваются.
-4. **Local-first.** Хранилище — SQLite. Сетевых вызовов у Continuum нет вообще: ни телеметрии, ни облака, ни обновлений через интернет.
-5. **UI тонкий.** WPF — только оболочка над `Application / Core`. Бизнес-логики в окнах нет.
-6. **Интерфейс на русском.** Все видимые строки, кнопки и статусы — русские. Английскими остаются имена классов и технические термины в коде.
-7. **Честная деградация.** Если источник данных не сработал, UI показывает «недоступно». Пустое значение выглядит как баг, выдуманное — как обман; обе ситуации недопустимы.
+4. **Local-first.** Хранилище - SQLite. Сетевых вызовов у Continuum нет вообще: ни телеметрии, ни облака, ни обновлений через интернет.
+5. **UI тонкий.** WPF - только оболочка над `Application / Core`. Бизнес-логики в окнах нет.
+6. **Интерфейс на русском.** Все видимые строки, кнопки и статусы - русские. Английскими остаются имена классов и технические термины в коде.
+7. **Честная деградация.** Если источник данных не сработал, UI показывает «недоступно». Пустое значение выглядит как баг, выдуманное - как обман; обе ситуации недопустимы.
 8. **Невидимая стоимость.** Фоновый рекордер обязан оставаться в пределах бюджета ресурсов (см. ниже).
 
 Стек MVP:
@@ -105,8 +105,8 @@ Windows + .NET 10 (net10.0-windows) + WPF + SQLite (Microsoft.Data.Sqlite)
 ```text
 НЕ делает скриншоты
 НЕ перехватывает клавиатуру и не записывает нажатия
-НЕ читает содержимое файлов — только пути, имена и метаданные
-НЕ читает содержимое страниц — только title и (когда доступно) URL
+НЕ читает содержимое файлов - только пути, имена и метаданные
+НЕ читает содержимое страниц - только title и (когда доступно) URL
 НЕ обращается в сеть
 НЕ требует административных прав
 НЕ работает, когда процесс не запущен (нет службы, нет драйвера)
@@ -120,14 +120,14 @@ Windows + .NET 10 (net10.0-windows) + WPF + SQLite (Microsoft.Data.Sqlite)
 
 ## Архитектура
 
-Два проекта. Разделение — не косметика: один csproj делает правило «Core не знает про UI» комментарием, а не проверяемым ограничением.
+Два проекта. Разделение - не косметика: один csproj делает правило «Core не знает про UI» комментарием, а не проверяемым ограничением.
 
-> Структура из трёх проектов создана на шаге 0: `src/Continuum.Core` (`net10.0`), `src/Continuum.App` (`net10.0-windows`, на выходе `Continuum.exe`), `tests/Continuum.Tests`. Решение — классический `Continuum.sln` (не `.slnx`, чтобы открывался любым VS и SDK).
+> Структура из трёх проектов создана на шаге 0: `src/Continuum.Core` (`net10.0`), `src/Continuum.App` (`net10.0-windows`, на выходе `Continuum.exe`), `tests/Continuum.Tests`. Решение - классический `Continuum.sln` (не `.slnx`, чтобы открывался любым VS и SDK).
 
 ```text
 Continuum.sln
 │
-├── src/Continuum.Core      (net10.0 — переносимое ядро, без WinAPI и без WPF)
+├── src/Continuum.Core      (net10.0 - переносимое ядро, без WinAPI и без WPF)
 │   ├── Domain            Context, Session, Snapshot, Activity, Event,
 │   │                     Application, Project, RestorePlan, RestoreStep
 │   ├── Interfaces        IContextCollector, IAdapter, IRestoreStrategy,
@@ -135,7 +135,7 @@ Continuum.sln
 │   └── Engines           ContextEngine, SessionEngine, TimelineEngine,
 │                         SnapshotEngine, StoppedEngine, RestoreEngine
 │
-├── src/Continuum.App       (net10.0-windows — оболочка и инфраструктура)
+├── src/Continuum.App       (net10.0-windows - оболочка и инфраструктура)
 │   ├── Application       ContextService, SessionService, TimelineService,
 │   │                     SnapshotService, RestoreService, ProjectService,
 │   │                     SettingsService, DemoService
@@ -151,7 +151,7 @@ Continuum.sln
 │   └── Presentation      MainWindow, TimelineWindow, StoppedWindow,
 │                         SettingsWindow, FirstRunDialog, TrayIcon
 │
-└── tests/Continuum.Tests   (net10.0-windows, xunit — включая архитектурный тест,
+└── tests/Continuum.Tests   (net10.0-windows, xunit - включая архитектурный тест,
                              что Core не ссылается на Windows-стеки)
 ```
 
@@ -161,7 +161,7 @@ Continuum.sln
 
 ```text
         ┌─────────────┐
-        │ Presentation│   WPF — только оболочка
+        │ Presentation│   WPF - только оболочка
         └──────┬──────┘
                ▼
         ┌─────────────┐
@@ -173,7 +173,7 @@ Continuum.sln
         └─────────────┘
 ```
 
-Core не зависит ни от кого. `Infrastructure` и `Adapters` **реализуют интерфейсы, объявленные в Core** (инверсия зависимостей): ядро не знает ни про SQLite, ни про WinAPI, ни про Chrome. Отсюда — проверяемый тезис: **ядро переносимо, оболочка заменяема** (`WPF → Avalonia → Web UI → CLI` используют один Core).
+Core не зависит ни от кого. `Infrastructure` и `Adapters` **реализуют интерфейсы, объявленные в Core** (инверсия зависимостей): ядро не знает ни про SQLite, ни про WinAPI, ни про Chrome. Отсюда - проверяемый тезис: **ядро переносимо, оболочка заменяема** (`WPF → Avalonia → Web UI → CLI` используют один Core).
 
 ### Два механизма против спагетти
 
@@ -185,7 +185,7 @@ CaptureState()  → что удалось прочитать?
 RestoreState()  → что удалось восстановить?
 ```
 
-`Detect() == false` — нормальный результат, а не исключение. Адаптер сообщает о недоступности явно.
+`Detect() == false` - нормальный результат, а не исключение. Адаптер сообщает о недоступности явно.
 
 **RestoreStrategy** вместо знания о каждой программе в Core:
 
@@ -201,7 +201,7 @@ VS Code на строке   → ExecuteCommand (code -g <path>:<line>)
 Сложное приложение  → CustomAdapter
 ```
 
-`ExecuteCommand` в MVP работает **только по whitelist** шаблонов: строка команды хранится в БД, и выполнение произвольных строк из неё — это выполнение произвольного кода. Разрешены: `code -g <path>[:<line>]`, `wt -d <path>`, фиксированный набор read-only git-команд.
+`ExecuteCommand` в MVP работает **только по whitelist** шаблонов: строка команды хранится в БД, и выполнение произвольных строк из неё - это выполнение произвольного кода. Разрешены: `code -g <path>[:<line>]`, `wt -d <path>`, фиксированный набор read-only git-команд.
 
 Неизвестное приложение тоже сохраняется и восстанавливается на базовом уровне: exe, рабочая директория, окно (позиция/размер), связанные файлы.
 
@@ -227,20 +227,20 @@ Observable → Filter → Sanitize → Persist
 
 - разрешения коллекторов (какой коллектор что имеет право читать);
 - исключения приложений и директорий;
-- `Не записывать никогда`: менеджеры паролей, приватный режим браузера — с явной оговоркой о детектировании (см. ниже);
+- `Не записывать никогда`: менеджеры паролей, приватный режим браузера - с явной оговоркой о детектировании (см. ниже);
 - редактирование секретов в командных строках (токены, пароли, ключи);
 - срок хранения (retention) + полное удаление данных, включая `-wal`/`-shm`.
 
 Принцип: **Capture context ≠ capture everything.**
 
-Полная нормативная спецификация — [`docs/specs/privacy-pipeline.md`](docs/specs/privacy-pipeline.md).
+Полная нормативная спецификация - [`docs/specs/privacy-pipeline.md`](docs/specs/privacy-pipeline.md).
 
 **Известные ограничения** (фиксируются честно, а не замалчиваются):
 
 - точный URL вкладки Chrome без расширения браузера получается только через UI Automation и только когда он доступен;
-- incognito-окно надёжно не детектируется ни по заголовку, ни по процессу — поэтому гарантия не-записи достигается исключением приложения целиком.
+- incognito-окно надёжно не детектируется ни по заголовку, ни по процессу - поэтому гарантия не-записи достигается исключением приложения целиком.
 
-Детали по каждому источнику — [`docs/specs/data-sources.md`](docs/specs/data-sources.md).
+Детали по каждому источнику - [`docs/specs/data-sources.md`](docs/specs/data-sources.md).
 
 ---
 
@@ -258,7 +258,7 @@ Observable → Filter → Sanitize → Persist
 - пути файлов + рабочие директории → привязка к проекту;
 - Git: ветка, HEAD, dirty-файлы, число untracked;
 - терминал: процесс + CWD (через CommandLine);
-- браузер: title всегда, URL — opportunistically;
+- браузер: title всегда, URL - opportunistically;
 - системные события: старт/конец сессии, сон/пробуждение.
 
 **Engines + Storage**
@@ -272,17 +272,17 @@ Observable → Filter → Sanitize → Persist
 
 **UI (WPF, интерфейс на русском)**
 
-- `MainWindow` — «Последняя сессия» (проект, длительность, приложения, файлы, вкладки) + «Статус» + `[ Восстановить сессию ]`;
-- `TimelineWindow` — «Хронология»: полная история событий сессии;
-- `StoppedWindow` — «Где я остановился?»: проект, файл, коммит, незакоммиченное, терминал, статус;
-- `SettingsWindow` — «Настройки»: исключения приложений/директорий, «Не записывать никогда», срок хранения, удаление данных;
-- `FirstRunDialog` — «Прошлый контекст не найден → [Создать демо-проект]»;
-- `TrayIcon` — фоновая работа, «Завершить сессию», «Восстановить», «Открыть»;
-- автозапуск через `HKCU\...\Run` или ярлык в папке Startup (не HKLM — админка не нужна).
+- `MainWindow` - «Последняя сессия» (проект, длительность, приложения, файлы, вкладки) + «Статус» + `[ Восстановить сессию ]`;
+- `TimelineWindow` - «Хронология»: полная история событий сессии;
+- `StoppedWindow` - «Где я остановился?»: проект, файл, коммит, незакоммиченное, терминал, статус;
+- `SettingsWindow` - «Настройки»: исключения приложений/директорий, «Не записывать никогда», срок хранения, удаление данных;
+- `FirstRunDialog` - «Прошлый контекст не найден → [Создать демо-проект]»;
+- `TrayIcon` - фоновая работа, «Завершить сессию», «Восстановить», «Открыть»;
+- автозапуск через `HKCU\...\Run` или ярлык в папке Startup (не HKLM - админка не нужна).
 
 **Демо и тесты**
 
-- `Continuum.exe --demo` — синтетическая сессия в отдельной БД (`continuum.demo.db`);
+- `Continuum.exe --demo` - синтетическая сессия в отдельной БД (`continuum.demo.db`);
 - юнит-тесты чистых функций: определение проекта, правила связей, статус «остановился», фильтр/санитизация, построение RestorePlan.
 
 ### Non-goals (после MVP)
@@ -296,7 +296,7 @@ Observable → Filter → Sanitize → Persist
 - AI-объяснения;
 - облако, Linux, сложная аналитика.
 
-Цель семестра — не «интеграция со всем», а:
+Цель семестра - не «интеграция со всем», а:
 
 > **Доказать концепцию end-to-end на одном реальном сценарии.**
 
@@ -304,9 +304,9 @@ Observable → Filter → Sanitize → Persist
 
 ## Схема БД
 
-Миграции — SQL-скриптами вручную через `PRAGMA user_version`. Без EF.
+Миграции - SQL-скриптами вручную через `PRAGMA user_version`. Без EF.
 
-**Правило разделения:** в реляционные таблицы выносится то, по чему выполняются запросы (Timeline, «Где я остановился?», RestorePlan, счётчики в `MainWindow`). Всё остальное — в `summary_json` снапшота. Дублирование одного факта в таблице и в JSON не допускается.
+**Правило разделения:** в реляционные таблицы выносится то, по чему выполняются запросы (Timeline, «Где я остановился?», RestorePlan, счётчики в `MainWindow`). Всё остальное - в `summary_json` снапшота. Дублирование одного факта в таблице и в JSON не допускается.
 
 ```sql
 -- v1
@@ -335,7 +335,7 @@ events          (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES 
                  --       file_changed | file_opened | git_commit | git_branch_switch
                  --       terminal_activity | browser_navigate | system_sleep | system_wake
 
--- «Файлы за сессию» — event-уровень, не snapshot-уровень.
+-- «Файлы за сессию» - event-уровень, не snapshot-уровень.
 file_activity   (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
                  ts INTEGER NOT NULL, project_id INTEGER REFERENCES projects(id),
                  path TEXT NOT NULL, change_kind TEXT NOT NULL,   -- modified | added | deleted | untracked
@@ -388,11 +388,11 @@ CREATE INDEX ix_restore_steps_plan  ON restore_steps(plan_id, seq);
 
 Как это используется:
 
-- **Timeline** — `SELECT ... FROM events WHERE session_id = ? ORDER BY ts`, без изменений задним числом;
-- **Snapshot** — реляционные таблицы + `summary_json` для быстрого построения RestorePlan;
-- **«Где я остановился?»** — последний `snapshot` + `file_activity` + `git_state` + `events` после `head_ts`;
-- **RestorePlan** — `open_files`, `browser_tabs`, `terminals`, `applications` → упорядоченные `restore_steps`;
-- **счётчики `MainWindow`** — `COUNT(DISTINCT application_id)`, `COUNT(DISTINCT path)` в `file_activity`, `COUNT(*)` в `browser_tabs`.
+- **Timeline** - `SELECT ... FROM events WHERE session_id = ? ORDER BY ts`, без изменений задним числом;
+- **Snapshot** - реляционные таблицы + `summary_json` для быстрого построения RestorePlan;
+- **«Где я остановился?»** - последний `snapshot` + `file_activity` + `git_state` + `events` после `head_ts`;
+- **RestorePlan** - `open_files`, `browser_tabs`, `terminals`, `applications` → упорядоченные `restore_steps`;
+- **счётчики `MainWindow`** - `COUNT(DISTINCT application_id)`, `COUNT(DISTINCT path)` в `file_activity`, `COUNT(*)` в `browser_tabs`.
 
 ### Детерминированный алгоритм «Где я остановился?»
 
@@ -408,7 +408,7 @@ status:
   "Статус неясен"                   если git-репозиторий не найден (не ошибка, а другой сценарий)
 ```
 
-Эта таблица истинности покрывается юнит-тестами на фиксированных входных данных — именно она доказывает тезис «детерминированно, без LLM».
+Эта таблица истинности покрывается юнит-тестами на фиксированных входных данных - именно она доказывает тезис «детерминированно, без LLM».
 
 ### Границы сессии
 
@@ -444,9 +444,9 @@ CRASH-RECOVERY (при старте)
 
 Правила:
 
-- событие пишется **на изменение**, не на тик; «ничего не изменилось» — это heartbeat, не событие;
-- `Process.GetProcesses()` в цикле не используется — вместо него `CreateToolhelp32Snapshot` или кэш с инвалидацией;
-- `FileSystemWatcher` — с фильтрами и буфером, никогда не наблюдает `node_modules`, `.git`, `bin`, `obj`, `AppData`.
+- событие пишется **на изменение**, не на тик; «ничего не изменилось» - это heartbeat, не событие;
+- `Process.GetProcesses()` в цикле не используется - вместо него `CreateToolhelp32Snapshot` или кэш с инвалидацией;
+- `FileSystemWatcher` - с фильтрами и буфером, никогда не наблюдает `node_modules`, `.git`, `bin`, `obj`, `AppData`.
 
 ---
 
@@ -459,16 +459,16 @@ CRASH-RECOVERY (при старте)
 | 0 | **Разделение проектов.** `Continuum.Core` (`net10.0`) + `Continuum.App` (`net10.0-windows`), DI-хост, пути `%LOCALAPPDATA%`, `IClock` | Core собирается без `-windows`; из Core недоступны типы WPF и WinAPI |
 | 1 | **Domain + SQLite + privacy-конвейер.** Модели, создание БД, `PRAGMA user_version`, миграции, `IPrivacyFilter`/`ISanitizer` **до первой записи** | БД создаётся при первом запуске; ни одна запись не минует конвейер (проверяется тестом) |
 | 2 | **Process/Window collector + tray.** Список процессов, `EnumWindows`, активное окно, заголовки, события-на-изменение | Смена активного окна даёт ровно одно событие; tray работает, окно не мешает |
-| 3 | **Project + Git + file_activity.** Определение git root, `GitClient` (`--no-optional-locks`, `GIT_TERMINAL_PROMPT=0`, таймаут, поиск git.exe), dirty-файлы | Проект определяется по пути файла и по CWD; при отсутствии git — `available = 0`, без исключений |
+| 3 | **Project + Git + file_activity.** Определение git root, `GitClient` (`--no-optional-locks`, `GIT_TERMINAL_PROMPT=0`, таймаут, поиск git.exe), dirty-файлы | Проект определяется по пути файла и по CWD; при отсутствии git - `available = 0`, без исключений |
 | 4 | **Session → Timeline → Snapshot.** Границы сессии, append событий, снапшот по таймеру и при выходе, crash-recovery | После kill процесса висячая сессия закрывается при следующем старте; снапшот пишется при `OnSessionEnding` |
 | 5 | **Stopped Engine.** Реализация таблицы истинности | Юнит-тесты на всех ветках: dirty / clean+commit / нет git |
 | 6 | **RestorePlan.** Resolver путей приложений (`App Paths` → Uninstall → известные → PATH), порядок шагов (хост → окно → файлы/URL), dry-run, `success/partial/failed` | Падение одного шага не отменяет остальные; dry-run ничего не запускает; повтор не плодит дубликаты |
 | 7 | **VS Code adapter.** `state.vscdb`, `User/History/*/entries.json`, `workspaceStorage/*/workspace.json`; восстановление через `code -g path:line` | Открытые файлы и последняя строка читаются из фактов, а не угадываются по заголовкам |
 | 8 | **`--demo` + юнит-тесты.** Seed-режим с отдельной БД, генератор демо-проекта, тесты чистых функций | Полный цикл (`Хронология` → `Где я остановился?` → `RestorePlan`) показывается на машине без VS Code и git |
 | 9 | **SettingsWindow.** Исключения приложений/директорий, «Не записывать никогда», retention, полное удаление (включая `-wal`/`-shm`) | Исключение действует немедленно, без перезапуска; удаление стирает всё |
-| 10 | **Chrome + Terminal.** Title всегда; URL через UIA opportunistically с флагом `url_available`; CWD терминала через CommandLine (PEB — опционально) | При недоступном UIA интерфейс показывает «URL недоступен», а не пустоту; `wt -d <path>` даёт CWD |
+| 10 | **Chrome + Terminal.** Title всегда; URL через UIA opportunistically с флагом `url_available`; CWD терминала через CommandLine (PEB - опционально) | При недоступном UIA интерфейс показывает «URL недоступен», а не пустоту; `wt -d <path>` даёт CWD |
 
-Контекстные связи в MVP — **только жёсткие правила** (равенство git root, равенство каталога, принадлежность снапшоту). Веса и проценты — после рабочего среза и замеров; в UI проценты не показываются.
+Контекстные связи в MVP - **только жёсткие правила** (равенство git root, равенство каталога, принадлежность снапшоту). Веса и проценты - после рабочего среза и замеров; в UI проценты не показываются.
 
 ---
 
@@ -488,7 +488,7 @@ CRASH-RECOVERY (при старте)
 11. Показать результат каждого шага: ✓ / ⚠ / ✗
 ```
 
-Перезагрузка Windows — опциональная вторая демонстрация (`Сохранить → перезагрузка → Восстановить`), не обязательная.
+Перезагрузка Windows - опциональная вторая демонстрация (`Сохранить → перезагрузка → Восстановить`), не обязательная.
 
 Demo workspace:
 
@@ -505,7 +505,7 @@ DemoProject/
 
 `Continuum.exe --demo` заполняет отдельную БД (`continuum.demo.db`) синтетической, но реалистичной сессией: проект, 40–60 событий, git-состояние, снапшот. Позволяет показать `Хронологию`, `Где я остановился?` и `RestorePlan` **независимо от того, что установлено на учебном ПК**.
 
-Это единственная мера, снимающая риск «демо умерло на чужой машине» — а он для курсовой фатальнее любого недостающего адаптера.
+Это единственная мера, снимающая риск «демо умерло на чужой машине» - а он для курсовой фатальнее любого недостающего адаптера.
 
 ### Чек-лист рисков на чужом ПК
 
@@ -537,14 +537,14 @@ dotnet test
 # ДЕМО-СБОРКА (рекомендуется): папка, копирование без установки
 dotnet publish src/Continuum.App -c Release -r win-x64 --self-contained true -o publish
 
-# single-file — только если temp-распаковка гарантированно разрешена
+# single-file - только если temp-распаковка гарантированно разрешена
 dotnet publish src/Continuum.App -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
 ```
 
 **Почему для защиты folder-publish.** Single-file WPF распаковывает нативные библиотеки (в том числе `e_sqlite3.dll`) во временную папку: нужен `IncludeNativeLibrariesForSelfExtract=true`, иначе на чистой машине будет «unable to load e_sqlite3» прямо во время демонстрации. Распаковку в temp иногда режет AppLocker или антивирус в учебных классах, а первый запуск медленный. Folder-publish сохраняет сценарий «скопировал папку → запустил» и убирает все три риска.
 
-Решение — классический `Continuum.sln` (выбрано на шаге 0): открывается любым Visual Studio и любым SDK, в отличие от `.slnx`.
+Решение - классический `Continuum.sln` (выбрано на шаге 0): открывается любым Visual Studio и любым SDK, в отличие от `.slnx`.
 
 После первого запуска данные здесь:
 
@@ -596,16 +596,18 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 1 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 92 теста зелёные).
+Сейчас: **шаг 2 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 124 теста зелёные).
 
-Шаг 1 дал: доменные модели (`Session`, `Event`, `Project`, `ApplicationInfo`, `FileActivity`, `Snapshot` + `GitState`/`TerminalState`/`OpenFile`/`BrowserTab`, `RestorePlan` + `RestoreStep`); хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` — `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (SQL-скрипты встраиваются в сборку: `Infrastructure/Database/Migrations/V001__init.sql`), первая миграция — схема v1 из раздела «Схема БД» плюс уникальный индекс `ux_applications_name_exe` (`exe_path NOT NULL DEFAULT ''`, иначе upsert по `(name, exe_path)` не работает — SQLite считает NULL-ы различными); `SqliteRepository` (сессии, append-only события, file_activity, upsert проектов/приложений, снапшот с дочерними наборами в одной транзакции, настройки); инициализация БД до показа главного окна; реализацию privacy-конвейера (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter` по `docs/specs/privacy-pipeline.md`) — правила «никогда не записывать» (§4.3) появятся вместе с окном настроек на шаге 9.
+Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
-Документация в согласованном состоянии: `readme.md` — источник истины по скоупу, нормативные спецификации — в `docs/specs/`.
+Шаг 2 дал: конвейер наблюдений `Observable → Filter → Sanitize → Persist` как код (`ObservationPipeline` - ни одна запись не минует его; сбой одного наблюдения не роняет приложение); минимальный жизненный цикл сессии (`SessionRuntime`: crash-recovery висячих сессий, `session_start`/`session_end`, idle-порог 15 мин); коллектор `WindowMonitor` (фокусное окно каждые 2 с - ровно одно событие на смену пары pid+title; старт/выход процессов диффом снапшотов `CreateToolhelp32Snapshot`, без `Process.GetProcesses()` в цикле; exe-путь best-effort через `QueryFullProcessImageNameW`); трей на `NotifyIcon` без сторонних пакетов (крестик прячет окно, выход - только из меню трея, сессия закрывается с причиной `user`). Проверено живым прогоном: события и приложения пишутся в БД, собственное окно отбрасывается конвейером. Известное ограничение: приложение с неизвестным exe-путём создаёт отдельную строку справочника - коалесценция отложена.
 
-Следующий шаг — **шаг 2**: мониторинг фокуса и приложений (WinAPI, события `app_focused`/`app_started`/`app_exited`, прохождение privacy-конвейера до первой записи).
+Документация в согласованном состоянии: `readme.md` - источник истины по скоупу, нормативные спецификации - в `docs/specs/`.
+
+Следующий шаг - **шаг 3**: Project + Git + file_activity (определение git root, `GitClient` с `--no-optional-locks`, dirty-файлы, запись активности файлов).
 
 ---
 
 ## Лицензия
 
-MIT. Текст — в файле [`LICENSE`](./LICENSE).
+MIT. Текст - в файле [`LICENSE`](./LICENSE).

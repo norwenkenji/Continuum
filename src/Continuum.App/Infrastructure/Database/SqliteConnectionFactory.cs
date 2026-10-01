@@ -7,9 +7,9 @@ namespace Continuum.Infrastructure.Database;
 /// <summary>
 /// Открывает соединения с SQLite с едиными настройками:
 /// WAL (конкурентное чтение во время записи), foreign_keys (ссылочная
-/// целостность), synchronous=NORMAL (быстрее и достаточно в WAL — важно
+/// целостность), synchronous=NORMAL (быстрее и достаточно в WAL - важно
 /// в окне WM_QUERYENDSESSION, где на запись есть ~5 секунд).
-/// Каталог БД создаётся автоматически — zero-setup.
+/// Каталог БД создаётся автоматически - zero-setup.
 /// </summary>
 public sealed class SqliteConnectionFactory
 {
