@@ -97,7 +97,7 @@ GetWindowTextLength(hwnd) > 0
 
 | Источник | Класс | Что даёт | Когда использовать |
 | --- | --- | --- | --- |
-| `git status --porcelain --no-optional-locks` | B | Точный список dirty-файлов репозитория + тип изменения | **Основной** для проектов с git |
+| `git --no-optional-locks status --porcelain` | B | Точный список dirty-файлов репозитория + тип изменения | **Основной** для проектов с git |
 | `FileSystemWatcher` на корне проекта | A | Факт изменения/создания/удаления файла | Только для обнаруженных проектов |
 | `%APPDATA%\Microsoft\Windows\Recent\*.lnk` | B | Недавно открытые документы с временем | Работает и для не-кода: Office, PDF, изображения |
 | `%APPDATA%\Code\User\History\*\entries.json` | B | Точные пути и timestamp каждого сохранения в VS Code | Раздел 7 |
@@ -154,11 +154,24 @@ InternalBufferSize = 64 КБ (больше для крупных проекто�
 ### 4.2 Разрешённые команды
 
 ```text
-git rev-parse --show-toplevel                      корень репозитория
-git rev-parse --abbrev-ref HEAD                    ветка
-git log -1 --format=%H%x09%ct%x09%s                последний коммит
-git status --porcelain --no-optional-locks         dirty-файлы
+git rev-parse --show-toplevel                              корень репозитория
+git rev-parse --abbrev-ref HEAD                            ветка
+git symbolic-ref --short HEAD                              ветка, fallback: на репозитории без
+                                                           коммитов rev-parse --abbrev-ref HEAD
+                                                           падает с кодом 128
+git log -1 --format=%H%x09%ct%x09%s                        последний коммит
+git --no-optional-locks status --porcelain                 dirty-файлы
 ```
+
+Тонкости, проверенные на git 2.54:
+
+- `--no-optional-locks` - **глобальная** опция и стоит до подкоманды; как флаг
+  `status` она не существует (exit 129). Каждый вызов также получает
+  `-c credential.helper=` (пустое значение - хелпер отключён).
+- Команда `status` дополнительно вызывается с `-c core.quotePath=false`:
+  иначе не-ASCII имена (кириллица) приходят восьмеричными эскейпами в кавычках.
+- Ветка «HEAD» в выводе `rev-parse --abbrev-ref` означает detached HEAD -
+  активной ветки нет.
 
 **Запрещено:**
 
@@ -166,7 +179,7 @@ git status --porcelain --no-optional-locks         dirty-файлы
 git fetch / pull / push / ls-remote / clone   ← сетевые, нарушают local-first
 git commit / add / reset / checkout / stash   ← изменяют репозиторий пользователя
 git config --global ...                       ← глобальные побочные эффекты
-любая команда без --no-optional-locks, если она читает индекс
+любая команда, читающая индекс, без --no-optional-locks
 ```
 
 `--no-optional-locks` критичен: без него `git status` обновляет индекс и может конфликтовать с git-операциями самого пользователя (в частности, ломать `git status` в его терминале в момент вызова).
@@ -464,7 +477,7 @@ PRAGMA synchronous = NORMAL (не FULL - ради скорости в этом �
 | Процессы | A | `CreateToolhelp32Snapshot` | `Process.GetProcesses()` (разово) | отказ = баг |
 | Окна, заголовки | A | `EnumWindows` + `GetWindowText` | - | отказ = баг |
 | Активное окно | A | `GetForegroundWindow` | - | отказ = баг |
-| Файлы (git) | B | `git status --porcelain --no-optional-locks` | `FileSystemWatcher` | `available = 0` |
+| Файлы (git) | B | `git --no-optional-locks status --porcelain` | `FileSystemWatcher` | `available = 0` |
 | Файлы (не git) | B | `FileSystemWatcher`, `Recent\*.lnk` | - | `file_activity` пуст |
 | Git-состояние | B | `git.exe` (раздел 4) | - | «Git недоступен», статус «неясен» |
 | Проект | A/B | git root → workspace → CWD → общий предок | - | проект не определён, события без `project_id` |

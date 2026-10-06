@@ -41,7 +41,10 @@ public enum FileChangeKind
     Modified,
     Added,
     Deleted,
-    Untracked
+    Untracked,
+
+    /// <summary>Файл открыт (источник Recent\*.lnk; data-sources §3.2: opened, не modified).</summary>
+    Opened
 }
 
 /// <summary>Источник факта активности файла (file_activity.source).</summary>

@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS file_activity (
     ts          INTEGER NOT NULL,
     project_id  INTEGER REFERENCES projects(id),
     path        TEXT NOT NULL,
-    change_kind TEXT NOT NULL,   -- modified | added | deleted | untracked
+    change_kind TEXT NOT NULL,   -- modified | added | deleted | untracked | opened
     source      TEXT NOT NULL    -- git | watcher | recent | vscode_history
 );
 

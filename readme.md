@@ -338,7 +338,7 @@ events          (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES 
 -- «Файлы за сессию» - event-уровень, не snapshot-уровень.
 file_activity   (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
                  ts INTEGER NOT NULL, project_id INTEGER REFERENCES projects(id),
-                 path TEXT NOT NULL, change_kind TEXT NOT NULL,   -- modified | added | deleted | untracked
+                 path TEXT NOT NULL, change_kind TEXT NOT NULL,   -- modified | added | deleted | untracked | opened
                  source TEXT NOT NULL)                            -- git | watcher | recent | vscode_history
 
 snapshots       (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -400,7 +400,7 @@ CREATE INDEX ix_restore_steps_plan  ON restore_steps(plan_id, seq);
 last_project = проект последнего записанного события сессии
 last_file    = последний путь из file_activity в этом проекте
 last_commit  = git log -1 --format=%H%x09%ct%x09%s
-after_commit = git status --porcelain --no-optional-locks   (состояние на сейчас)
+after_commit = git --no-optional-locks status --porcelain   (состояние на сейчас)
 
 status:
   "Работа, возможно, не завершена"  если after_commit > 0 ИЛИ последнее событие = правка файла
@@ -596,15 +596,17 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 2 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 124 теста зелёные).
+Сейчас: **шаг 3 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 183 теста зелёные).
 
 Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
 Шаг 2 дал: конвейер наблюдений `Observable → Filter → Sanitize → Persist` как код (`ObservationPipeline` - ни одна запись не минует его; сбой одного наблюдения не роняет приложение); минимальный жизненный цикл сессии (`SessionRuntime`: crash-recovery висячих сессий, `session_start`/`session_end`, idle-порог 15 мин); коллектор `WindowMonitor` (фокусное окно каждые 2 с - ровно одно событие на смену пары pid+title; старт/выход процессов диффом снапшотов `CreateToolhelp32Snapshot`, без `Process.GetProcesses()` в цикле; exe-путь best-effort через `QueryFullProcessImageNameW`); трей на `NotifyIcon` без сторонних пакетов (крестик прячет окно, выход - только из меню трея, сессия закрывается с причиной `user`). Проверено живым прогоном: события и приложения пишутся в БД, собственное окно отбрасывается конвейером. Известное ограничение: приложение с неизвестным exe-путём создаёт отдельную строку справочника - коалесценция отложена.
 
+Шаг 3 дал: определение проекта по пути файла/CWD (`ProjectResolver`: внешний git root, вложенные репозитории - один проект, bare не проект, subst раскрывается); `GitClient` - единственный компонент, запускающий git.exe (поиск по §4.1, только читающие команды §4.2, окружение §4.3, таймаут 5 с; нет git - `available = 0` без исключений); `ProjectGitMonitor` - опрос зарегистрированных проектов каждые 10 с, дифф dirty-файлов пишется в `file_activity` (source=git) и в хронологию с `project_id`; `ProjectRegistry` - сессионный реестр проектов с upsert в БД. Проверено живым прогоном (dev-шов `CONTINUUM_WATCH_PATH`): правка и новый файл с кириллицей в имени легли в `file_activity` корректно. Поправки спеки по факту: `--no-optional-locks` - глобальная опция (как флаг `status` не существует), `symbolic-ref --short HEAD` - fallback ветки для репозитория без коммитов, `-c core.quotePath=false` против восьмеричных эскейпов не-ASCII имён.
+
 Документация в согласованном состоянии: `readme.md` - источник истины по скоупу, нормативные спецификации - в `docs/specs/`.
 
-Следующий шаг - **шаг 3**: Project + Git + file_activity (определение git root, `GitClient` с `--no-optional-locks`, dirty-файлы, запись активности файлов).
+Следующий шаг - **шаг 4**: Session → Timeline → Snapshot (границы сессии с idle-порогом, снапшот по таймеру и при выходе, `git_state` в снапшоте, FileSystemWatcher и Recent\*.lnk для file_activity).
 
 ---
 

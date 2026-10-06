@@ -49,6 +49,16 @@ namespace Continuum
             // Сессия - до старта коллекторов: их события пишутся в неё
             services.GetRequiredService<SessionRuntime>().StartAsync().GetAwaiter().GetResult();
 
+            // Dev-шов живой проверки: CONTINUUM_WATCH_PATH=<путь> регистрирует
+            // проект в реестре до старта коллекторов (пользовательского UI
+            // регистрации проектов в MVP нет - пути придут из шагов 7/10)
+            var watchPath = Environment.GetEnvironmentVariable("CONTINUUM_WATCH_PATH");
+            if (!string.IsNullOrWhiteSpace(watchPath))
+            {
+                services.GetRequiredService<IProjectRegistry>()
+                    .RegisterPathAsync(watchPath).GetAwaiter().GetResult();
+            }
+
             var pipeline = services.GetRequiredService<ObservationPipeline>();
             foreach (var source in services.GetServices<IObservationSource>())
             {

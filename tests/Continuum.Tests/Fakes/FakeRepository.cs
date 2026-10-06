@@ -19,6 +19,10 @@ internal sealed class FakeRepository : IRepository
 
     public List<ApplicationInfo> Applications { get; } = [];
 
+    public List<FileActivity> FileActivities { get; } = [];
+
+    public List<Project> Projects { get; } = [];
+
     public Func<Event, Task>? OnAppendEvent { get; set; }
 
     public Task<long> CreateSessionAsync(Session session, CancellationToken ct = default)
@@ -65,13 +69,27 @@ internal sealed class FakeRepository : IRepository
         => Task.FromResult<IReadOnlyList<Event>>([.. Events.Where(e => e.SessionId == sessionId)]);
 
     public Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        FileActivities.Add(activity);
+        return Task.CompletedTask;
+    }
 
     public Task<Project?> FindProjectByRootPathAsync(string rootPath, CancellationToken ct = default)
-        => Task.FromResult<Project?>(null);
+        => Task.FromResult(Projects.FirstOrDefault(p => p.RootPath == rootPath));
 
     public Task<long> UpsertProjectAsync(Project project, CancellationToken ct = default)
-        => Task.FromResult(_nextId++);
+    {
+        var existing = Projects.FindIndex(p => p.RootPath == project.RootPath);
+        if (existing >= 0)
+        {
+            Projects[existing] = Projects[existing] with { Name = project.Name, LastSeen = project.LastSeen };
+            return Task.FromResult(Projects[existing].Id);
+        }
+
+        var created = project with { Id = _nextId++ };
+        Projects.Add(created);
+        return Task.FromResult(created.Id);
+    }
 
     public Task<long> UpsertApplicationAsync(ApplicationInfo application, CancellationToken ct = default)
     {

@@ -3,9 +3,12 @@ using Continuum.Core.Abstractions;
 using Continuum.Core.Interfaces;
 using Continuum.Core.Time;
 using Continuum.Infrastructure.Database;
+using Continuum.Infrastructure.Git;
 using Continuum.Infrastructure.Paths;
 using Continuum.Infrastructure.Privacy;
+using Continuum.Infrastructure.Processes;
 using Continuum.Pipeline;
+using Continuum.Projects;
 using Continuum.Runtime;
 using Continuum.Tray;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +54,18 @@ public static class CompositionRoot
         // Коллекторы (IObservationSource) регистрируются здесь по мере появления:
         // шаг 2 - WindowMonitor (Process/Window collector)
         services.AddSingleton<IObservationSource, Collectors.WindowMonitor>();
+
+        // Проекты и git (шаг 3). Фабрики - из-за необязательных параметров
+        // конструкторов (gitExePath, pollInterval), которые DI не подставит
+        services.AddSingleton<IProcessRunner, ProcessRunner>();
+        services.AddSingleton<IGitClient>(sp => new GitClient(sp.GetRequiredService<IProcessRunner>()));
+        services.AddSingleton<IProjectResolver, ProjectResolver>();
+        services.AddSingleton<IProjectRegistry, ProjectRegistry>();
+        services.AddSingleton<IObservationSource>(sp => new Collectors.ProjectGitMonitor(
+            sp.GetRequiredService<IProjectRegistry>(),
+            sp.GetRequiredService<IGitClient>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ILogger<Collectors.ProjectGitMonitor>>()));
 
         // Трей
         services.AddSingleton<TrayIcon>();
