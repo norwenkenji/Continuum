@@ -9,10 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace Continuum.Runtime;
 
 /// <summary>
-/// Жизненный цикл сессии работы. Шаг 2 даёт минимум: одна сессия на запуск
-/// приложения, закрытие висячих сессий прошлых запусков (crash-recovery),
-/// события session_start/session_end. Полные границы сессии (idle-порог,
-/// system sleep/wake) - шаг 4 дорожной карты.
+/// Жизненный цикл сессии работы: одна сессия на запуск приложения,
+/// закрытие висячих сессий прошлых запусков (crash-recovery - временем
+/// последнего события, readme «Границы сессии»), события session_start/session_end.
+/// Idle-порог и sleep/wake - SessionSupervisor (шаг 4).
 /// </summary>
 public sealed class SessionRuntime : ISessionContext
 {
@@ -42,8 +42,14 @@ public sealed class SessionRuntime : ISessionContext
         var open = await _repository.GetOpenSessionsAsync(ct).ConfigureAwait(false);
         foreach (var stale in open)
         {
-            _logger.LogWarning("Закрываю висячую сессию {SessionId} от {StartedAt}", stale.Id, stale.StartedAt);
-            await _repository.EndSessionAsync(stale.Id, _clock.UtcNow, SessionEndReason.CrashRecovered, ct)
+            // readme «Границы сессии»: висячая сессия закрывается временем
+            // последнего события, а не моментом обнаружения (иначе crash-recovery
+            // завышает длину сессии на всё время простоя приложения)
+            var endedAt = await _repository.GetLastEventTsAsync(stale.Id, ct).ConfigureAwait(false)
+                          ?? stale.StartedAt;
+            _logger.LogWarning("Закрываю висячую сессию {SessionId} от {StartedAt} временем {EndedAt}",
+                stale.Id, stale.StartedAt, endedAt);
+            await _repository.EndSessionAsync(stale.Id, endedAt, SessionEndReason.CrashRecovered, ct)
                 .ConfigureAwait(false);
         }
 

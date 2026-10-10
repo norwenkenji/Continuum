@@ -14,7 +14,70 @@
 ## Агент
 
 - **Модель:** Kimi-k3 (Moonshot AI)
-- **Способ:** задача делегирована промптом (воспроизводит требования spec data-sources.md §3-4, контракты Core и правила оформления), отчёт получен и проверен независимым прогоном.
+- **Способ:** задача делегирована промптом ниже, отчёт получен и проверен независимым прогоном.
+
+## Промпт (передан агенту)
+
+```text
+Контекст: проект Continuum - локальный WPF-рекордер рабочего контекста (.NET 10, WPF + SQLite, local-first, русский UI). Репозиторий: git, ветка main. SDK: dotnet 10.0.401. Сборка сейчас: 0 ошибок, 0 предупреждений, 132 теста зелёные. Так должно остаться и после тебя.
+
+ОБЯЗАТЕЛЬНО ПРОЧИТАЙ ПЕРЕД РАБОТОЙ:
+1. readme.md - «Бюджет ресурсов», «Порядок доведения до MVP» шаг 3.
+2. docs/specs/data-sources.md §3 и §4 целиком - это нормативная спецификация для твоей задачи.
+3. Контракты ядра (уже в дереве, реализация - твоя):
+   - src/Continuum.Core/Abstractions/IProcessRunner.cs - ProcessResult + RunAsync
+   - src/Continuum.Core/Abstractions/IGitClient.cs - DirtyFile, GitStateInfo, три метода
+   - src/Continuum.Core/Abstractions/IProjectResolver.cs - ResolveRoot
+   - src/Continuum.Core/Abstractions/Observation.cs - FileChange/FileSource
+   - src/Continuum.Core/Domain/Enums.cs - FileChangeKind (есть Opened), FileActivitySource
+
+## Что сделать
+
+### 1. ProcessRunner (src/Continuum.App/Infrastructure/Processes/ProcessRunner.cs)
+
+Реализация IProcessRunner: UseShellExecute=false, CreateNoWindow=true, перенаправление stdout/stderr с АСИНХРОННЫМ чтением обоих потоков (иначе взаимоблокировка на полном буфере), окружение через ProcessStartInfo.Environment, таймаут (параметр) и внешняя отмена - Kill(entireProcessTree: true). Ненулевой код выхода - это данные (ProcessResult.ExitCode), не исключение. Таймаут - ProcessResult.TimedOut=true.
+
+### 2. GitClient (src/Continuum.App/Infrastructure/Git/GitClient.cs)
+
+Реализация IGitClient - единственный компонент, запускающий git.exe:
+
+- FindGitExe(): поиск по §4.1 - PATH (where git), HKLM\SOFTWARE\GitForWindows\InstallPath, HKCU то же, %LOCALAPPDATA%\Programs\Git\cmd\git.exe, %LOCALAPPDATA%\GitHubDesktop\app-*\resources\app\git\cmd\git.exe (свежайший app-*), %ProgramFiles%\Git\cmd\git.exe. Результат кэшируется на время жизни процесса. Конструкторный параметр gitExePath - шов для тестов (null - обычный поиск).
+- Только читающие команды §4.2: rev-parse --show-toplevel, rev-parse --abbrev-ref HEAD, log -1 --format=%H%x09%ct%x09%s, status --porcelain. Каждый вызов - с префиксом «-c credential.helper=», окружением §4.3 (GIT_TERMINAL_PROMPT=0, GIT_OPTIONAL_LOCKS=0, GCM_INTERACTIVE=never, LC_ALL=C) и таймаутом 5 с.
+- Porcelain-разбор - отдельный чистый класс PorcelainParser: ??->Untracked, A->Added, D->Deleted, R/C->Deleted(старое)+Added(новое), M/T/U->Modified; кавычки вокруг путей снимаются; битые строки молча пропускаются.
+- НИКОГДА не бросает: git не найден, путь не репозиторий, таймаут, любой сбой - GitStateInfo.Unavailable / null. Это критерий шага: «при отсутствии git - available = 0, без исключений».
+
+### 3. ProjectResolver (src/Continuum.App/Infrastructure/Git/ProjectResolver.cs)
+
+Реализация IProjectResolver по §4.4: подъём от файла/каталога вверх, маркер - .git (каталог ИЛИ файл-worktree), корень - САМЫЙ ВЕРХНИЙ (вложенные репозитории - один проект); bare-репозитории не проекты. Нормализация: GetFullPath, обрезка завершающего разделителя, ToLowerInvariant, subst-диски раскрываются через QueryDosDeviceW. P/Invoke - только в src/Continuum.App/Infrastructure/Git/Native/GitNativeMethods.cs. Никогда не бросает.
+
+### 4. ProjectGitMonitor (src/Continuum.App/Collectors/ProjectGitMonitor.cs)
+
+IObservationSource: опрос корней из IProjectRegistry.RegisteredRoots раз в 10 с (конструкторный pollInterval для тестов). Дифф dirty-набора между тиками - отдельный чистый класс GitStateDiffer: первый снапшот - базовый (без эмиссий), появившиеся и сменившие kind пути - события, исчезнувшие молчат. Недоступный корень пропускается с сохранением прежнего состояния, забытые корни вычищаются. Эмит: Observation(Observable(FilePath, АБСОЛЮТНЫЙ путь (root + относительный), null, null, null, clock.UtcNow, ProjectRootPath=root), FileChanged, kind, FileActivitySource.Git). Start/Stop идемпотентны, никогда не бросает.
+
+### 5. Тесты (tests/Continuum.Tests/)
+
+- Git/PorcelainParserTests.cs - все виды XY-статусов, кавычки, переименования, битые строки.
+- Collectors/GitStateDifferTests.cs - базовый снимок молчит, появление/смена kind/исчезновение.
+- Git/GitClientTests.cs - фейковый IProcessRunner: точные аргументы команд, окружение §4.3, таймауты, detached HEAD, репозиторий без коммитов, git не найден.
+- Git/ProjectResolverTests.cs - реальные temp-каталоги: вложенные репозитории, файл-.git, bare, вне репозитория.
+- Git/GitClientIntegrationTests.cs - реальный git во временном репозитории %TEMP%; git не установлен - тест молча проходит.
+
+## Жёсткие ограничения
+
+- НЕ трогай: Continuum.Core/**, readme.md, docs/**, *.csproj, *.sln, CompositionRoot.cs, App.xaml.cs, ObservationPipeline.cs, SessionRuntime.cs, чужие тесты, файлы вне твоей задачи. plan.md не существует в репо - не ищи.
+- НЕ делай git-коммитов и git-команд, меняющих состояние репозитория (add/commit/push/reset/checkout). git status/diff - можно. Временные репозитории для тестов - в %TEMP%, удалять за собой.
+- Новые NuGet-пакеты запрещены.
+- P/Invoke - только в файлах *NativeMethods.cs.
+- Комментарии и строки - на русском. НИГДЕ не используй длинное тире «-» (U+2014), только дефис «-». Это критично.
+- Файлы - UTF-8 без BOM.
+- Пространства имён: Continuum.Infrastructure.*, Continuum.Collectors - НЕ Continuum.App.*.
+- После работы: dotnet build Continuum.sln (0 ошибок, 0 предупреждений) и dotnet test Continuum.sln (все зелёные) - приложи хвост вывода.
+
+## Отчёт
+
+Перечисли созданные файлы с кратким описанием, итог build/test, отступления от задания (если были) и «Замечания к остальному коду» - заметил чужое, что стоит поправить (не исправляй сам).
+```
+
 
 ## Что сделал агент
 

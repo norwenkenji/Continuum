@@ -22,6 +22,7 @@ namespace Continuum
     {
         private ServiceProvider? _services;
         private TrayIcon? _tray;
+        private bool _sessionClosedOnShutdown;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -59,12 +60,31 @@ namespace Continuum
                     .RegisterPathAsync(watchPath).GetAwaiter().GetResult();
             }
 
+            // Dev-шов живой проверки выхода: CONTINUUM_EXIT_AFTER_S=<секунды> -
+            // авто-Shutdown через диспетчер (крестик окна прячет в трей,
+            // поэтому graceful-выход из скрипта возможен только так)
+            if (int.TryParse(Environment.GetEnvironmentVariable("CONTINUUM_EXIT_AFTER_S"), out var exitAfterSeconds)
+                && exitAfterSeconds > 0)
+            {
+                new System.Threading.Timer(
+                    _ => Dispatcher.InvokeAsync(Shutdown),
+                    null,
+                    dueTime: exitAfterSeconds * 1000,
+                    period: Timeout.Infinite);
+            }
+
             var pipeline = services.GetRequiredService<ObservationPipeline>();
             foreach (var source in services.GetServices<IObservationSource>())
             {
                 pipeline.Attach(source);
                 source.Start();
             }
+
+            // Границы сессии и снапшоты по таймеру (шаг 4)
+            var supervisor = services.GetRequiredService<SessionSupervisor>();
+            supervisor.Start();
+            supervisor.HookPowerEvents();
+            ((Snapshots.Snapshotter)services.GetRequiredService<ISnapshotter>()).Start();
 
             _tray = services.GetRequiredService<TrayIcon>();
 
@@ -79,14 +99,51 @@ namespace Continuum
             window.Show();
         }
 
+        /// <summary>
+        /// Завершение сеанса Windows (logoff/shutdown): ~5 секунд на синхронную
+        /// запись снапшота (readme «Границы сессии»). Сессия закрывается здесь же,
+        /// чтобы OnExit не дублировал запись.
+        /// </summary>
+        protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+        {
+            try
+            {
+                if (_services is not null)
+                {
+                    _services.GetRequiredService<SessionSupervisor>().Stop();
+                    _services.GetRequiredService<ISnapshotter>()
+                        .SaveSnapshotAsync(SnapshotReason.Shutdown).GetAwaiter().GetResult();
+                    _services.GetRequiredService<SessionRuntime>()
+                        .StopAsync(SessionEndReason.Shutdown).GetAwaiter().GetResult();
+                    _sessionClosedOnShutdown = true;
+                }
+            }
+            catch
+            {
+                // Отменять завершение сеанса нельзя - просто уходим
+            }
+
+            base.OnSessionEnding(e);
+        }
+
         protected override void OnExit(ExitEventArgs e)
         {
             try
             {
-                // Один путь завершения на все случаи: трей, меню, explicit Shutdown
-                _services?.GetRequiredService<SessionRuntime>()
-                    .StopAsync(SessionEndReason.User).GetAwaiter().GetResult();
-                _services?.GetRequiredService<ObservationPipeline>().DetachAll();
+                if (_services is not null && !_sessionClosedOnShutdown)
+                {
+                    _services.GetRequiredService<SessionSupervisor>().Stop();
+                    ((Snapshots.Snapshotter)_services.GetRequiredService<ISnapshotter>()).Stop();
+
+                    // Снапшот на границе сессии - до её закрытия (критерий шага 4)
+                    _services.GetRequiredService<ISnapshotter>()
+                        .SaveSnapshotAsync(SnapshotReason.SessionEnd).GetAwaiter().GetResult();
+
+                    // Один путь завершения на все случаи: трей, меню, explicit Shutdown
+                    _services.GetRequiredService<SessionRuntime>()
+                        .StopAsync(SessionEndReason.User).GetAwaiter().GetResult();
+                    _services.GetRequiredService<ObservationPipeline>().DetachAll();
+                }
             }
             catch
             {

@@ -23,6 +23,8 @@ internal sealed class FakeRepository : IRepository
 
     public List<Project> Projects { get; } = [];
 
+    public List<Snapshot> Snapshots { get; } = [];
+
     public Func<Event, Task>? OnAppendEvent { get; set; }
 
     public Task<long> CreateSessionAsync(Session session, CancellationToken ct = default)
@@ -68,6 +70,15 @@ internal sealed class FakeRepository : IRepository
     public Task<IReadOnlyList<Event>> GetSessionEventsAsync(long sessionId, CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<Event>>([.. Events.Where(e => e.SessionId == sessionId)]);
 
+    public Task<DateTimeOffset?> GetLastEventTsAsync(long sessionId, CancellationToken ct = default)
+    {
+        var ts = Events.Where(e => e.SessionId == sessionId)
+            .Select(e => (DateTimeOffset?)e.Ts)
+            .OrderByDescending(t => t)
+            .FirstOrDefault();
+        return Task.FromResult(ts);
+    }
+
     public Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default)
     {
         FileActivities.Add(activity);
@@ -98,7 +109,11 @@ internal sealed class FakeRepository : IRepository
     }
 
     public Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default)
-        => Task.FromResult(_nextId++);
+    {
+        var saved = snapshot with { Id = _nextId++ };
+        Snapshots.Add(saved);
+        return Task.FromResult(saved.Id);
+    }
 
     public Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
         => Task.FromResult<string?>(null);

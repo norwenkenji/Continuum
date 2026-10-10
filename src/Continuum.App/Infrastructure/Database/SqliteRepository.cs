@@ -139,6 +139,17 @@ public sealed class SqliteRepository : IRepository
         return result;
     }
 
+    public async Task<DateTimeOffset?> GetLastEventTsAsync(long sessionId, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT MAX(ts) FROM events WHERE session_id = $session_id;";
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        var raw = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return raw is long ts ? DateTimeOffset.FromUnixTimeSeconds(ts) : null;
+    }
+
     // ---------------- Активность файлов ----------------
 
     public async Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default)

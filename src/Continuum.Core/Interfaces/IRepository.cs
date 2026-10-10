@@ -32,6 +32,9 @@ public interface IRepository
     /// <summary>События сессии по возрастанию времени - хронология.</summary>
     Task<IReadOnlyList<Event>> GetSessionEventsAsync(long sessionId, CancellationToken ct = default);
 
+    /// <summary>Время последнего события сессии; null - событий нет (crash-recovery).</summary>
+    Task<DateTimeOffset?> GetLastEventTsAsync(long sessionId, CancellationToken ct = default);
+
     // Активность файлов
 
     Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default);

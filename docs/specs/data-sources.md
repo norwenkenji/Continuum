@@ -35,7 +35,7 @@
 | Чтение `state.vscdb` / `entries.json` | 30–60 с | 2 с |
 | UIA (адресная строка Chrome) | по смене активного окна, не чаще 1 раза в 2 с | 1 с |
 | `FileSystemWatcher` | событийный | - |
-| `Recent\*.lnk` | 5 мин | 2 с |
+| `Recent\*.lnk` | 30 с | - |
 
 Общий бюджет - в [`readme.md`](../../readme.md), раздел «Бюджет ресурсов»: CPU < 1–2%, RAM < 150 МБ, рост БД < ~10 МБ/сутки.
 
@@ -112,6 +112,9 @@ GetWindowTextLength(hwnd) > 0
 IncludeSubdirectories = true, но с исключениями:
     node_modules, .git, bin, obj, .vs, AppData, packages,
     target, dist, build, __pycache__, .venv, vendor
+    (сегменты проверяются по пути ОТНОСИТЕЛЬНО корня проекта:
+     иначе проект, лежащий под %LOCALAPPDATA%, заглушался бы
+     целиком из-за сегмента AppData)
 NotifyFilter = LastWrite | FileName | Size
 InternalBufferSize = 64 КБ (больше для крупных проектов)
 Дедупликация: одно и то же (path, change_kind) не чаще раза в N секунд

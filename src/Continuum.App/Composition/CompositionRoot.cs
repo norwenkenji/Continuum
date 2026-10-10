@@ -67,6 +67,25 @@ public static class CompositionRoot
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<ILogger<Collectors.ProjectGitMonitor>>()));
 
+        // Коллекторы файловой активности (data-sources §3.1/§3.2)
+        services.AddSingleton<IObservationSource>(sp => new Collectors.FileActivityWatcher(
+            sp.GetRequiredService<IProjectRegistry>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ILogger<Collectors.FileActivityWatcher>>()));
+        services.AddSingleton<IObservationSource, Collectors.RecentFilesMonitor>();
+
+        // Снапшоты и полные границы сессии (шаг 4)
+        services.AddSingleton<ISnapshotter>(sp => new Snapshots.Snapshotter(
+            sp.GetRequiredService<IRepository>(),
+            sp.GetRequiredService<ISessionContext>(),
+            sp.GetRequiredService<IProjectRegistry>(),
+            sp.GetRequiredService<IGitClient>(),
+            sp.GetRequiredService<IPrivacyFilter>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>()));
+        services.AddSingleton<IIdleTimeSource, IdleTimeSource>();
+        services.AddSingleton<SessionSupervisor>();
+
         // Трей
         services.AddSingleton<TrayIcon>();
 

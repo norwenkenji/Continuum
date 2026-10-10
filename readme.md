@@ -596,7 +596,7 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 3 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 183 теста зелёные).
+Сейчас: **шаг 4 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 204 теста зелёные).
 
 Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
@@ -604,9 +604,11 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 Шаг 3 дал: определение проекта по пути файла/CWD (`ProjectResolver`: внешний git root, вложенные репозитории - один проект, bare не проект, subst раскрывается); `GitClient` - единственный компонент, запускающий git.exe (поиск по §4.1, только читающие команды §4.2, окружение §4.3, таймаут 5 с; нет git - `available = 0` без исключений); `ProjectGitMonitor` - опрос зарегистрированных проектов каждые 10 с, дифф dirty-файлов пишется в `file_activity` (source=git) и в хронологию с `project_id`; `ProjectRegistry` - сессионный реестр проектов с upsert в БД. Проверено живым прогоном (dev-шов `CONTINUUM_WATCH_PATH`): правка и новый файл с кириллицей в имени легли в `file_activity` корректно. Поправки спеки по факту: `--no-optional-locks` - глобальная опция (как флаг `status` не существует), `symbolic-ref --short HEAD` - fallback ветки для репозитория без коммитов, `-c core.quotePath=false` против восьмеричных эскейпов не-ASCII имён.
 
+Шаг 4 дал: полные границы сессии (`SessionSupervisor`: idle-порог через `GetLastInputInfo` с корректной арифметикой оборачивания TickCount, возврат ввода открывает новую сессию, sleep/wake системы пишут события не разрывая сессию); crash-recovery висячих сессий теперь закрывает их **временем последнего события**, а не моментом старта; снапшоты (`Snapshotter`: по таймеру 5 мин, при выходе и при `OnSessionEnding` - синхронно в бюджет ~5 с; `git_state` по каждому проекту, dirty-пути прогоняются через privacy-фильтр - снапшот не обход конвейера; проект без git пишется с available=0); коллекторы файловой активности: `FileActivityWatcher` (FSW на зарегистрированных корнях, исключения §3.1 по относительному пути, дедуп (path, kind) в окне 2 с) и `RecentFilesMonitor` (опрос `Recent\*.lnk` раз в 30 с, цели через IShellLink COM, `change_kind=opened`). Проверено живым прогоном (dev-швы `CONTINUUM_WATCH_PATH` + `CONTINUUM_EXIT_AFTER_S`): watcher события легли в `file_activity`, снапшот при выходе - в `snapshots` + `git_state`.
+
 Документация в согласованном состоянии: `readme.md` - источник истины по скоупу, нормативные спецификации - в `docs/specs/`.
 
-Следующий шаг - **шаг 4**: Session → Timeline → Snapshot (границы сессии с idle-порогом, снапшот по таймеру и при выходе, `git_state` в снапшоте, FileSystemWatcher и Recent\*.lnk для file_activity).
+Следующий шаг - **шаг 5**: Stopped Engine (алгоритм «Где я остановился?» - таблица истинности dirty/clean+commit/нет git, покрытая юнит-тестами).
 
 ---
 
