@@ -29,7 +29,7 @@ Observable → Filter → Sanitize → Persist
 ```csharp
 // Единица наблюдения до обработки
 public sealed record Observable(
-    ObservableKind Kind,        // WindowTitle | FilePath | Url | CommandLine | Cwd
+    ObservableKind Kind,        // WindowTitle | FilePath | Url | CommandLine | Cwd | GitRef
     string? Value,
     int? ProcessId,
     string? ApplicationName,
@@ -82,13 +82,15 @@ public interface IExclusionSet
 | `WindowCollector` | `WindowTitle` |
 | `FileActivityCollector` | `FilePath` |
 | `RecentDocumentsCollector` | `FilePath` |
-| `GitClient` | `FilePath` (dirty-файлы) |
+| `GitClient` | `FilePath` (dirty-файлы), `GitRef` (ветка, «hash subject» коммита) |
 | `TerminalCollector` | `Cwd`, `CommandLine` |
 | `ChromeTitleCollector` | `WindowTitle` |
 | `ChromeUrlCollector` | `Url` |
 | `VSCodeAdapter` | `FilePath` |
 
 `CommandLine` и `Url` - два самых чувствительных вида. Они проходят санитизацию в обязательном порядке, даже если правила исключений пусты.
+
+`GitRef` - короткая строка-факт из git (ветка, «hash subject» коммита). По чувствительности равен `WindowTitle`: фильтруется общими правилами, обязательной санитизации не проходит (сообщения коммитов не несут командных строк; секрет в subject коммита - такой же риск, как секрет в заголовке окна). Пишется в `events.title`.
 
 ---
 

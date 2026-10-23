@@ -39,9 +39,15 @@ public interface IRepository
 
     Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default);
 
+    /// <summary>Активность файлов сессии по возрастанию времени - «Файлы за сессию».</summary>
+    Task<IReadOnlyList<FileActivity>> GetSessionFileActivityAsync(long sessionId, CancellationToken ct = default);
+
     // Проекты и приложения
 
     Task<Project?> FindProjectByRootPathAsync(string rootPath, CancellationToken ct = default);
+
+    /// <summary>Проект по id; null - нет такого.</summary>
+    Task<Project?> GetProjectAsync(long projectId, CancellationToken ct = default);
 
     /// <summary>Вставка или обновление по RootPath; при конфликте обновляет name и last_seen. Возвращает id.</summary>
     Task<long> UpsertProjectAsync(Project project, CancellationToken ct = default);

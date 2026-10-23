@@ -11,12 +11,14 @@ using Microsoft.Extensions.Logging;
 namespace Continuum.Collectors;
 
 /// <summary>
-/// Монитор dirty-состояния зарегистрированных проектов. Каждый тик опрашивает
+/// Монитор git-состояния зарегистрированных проектов. Каждый тик опрашивает
 /// корни из IProjectRegistry через IGitClient (data-sources §4: только
 /// читающие команды, таймауты на стороне клиента). Эмитит по одному
-/// Observation на появившийся/изменившийся dirty-файл; исчезновение из
-/// dirty и первый тик по корню событиями не являются. Недоступный git -
-/// пропуск корня с сохранением предыдущего состояния, монитор живёт дальше.
+/// Observation на появившийся/изменившийся dirty-файл, на новый коммит
+/// (GitCommit) и на переключение именованной ветки (GitBranchSwitch);
+/// исчезновение из dirty и первый тик по корню событиями не являются.
+/// Недоступный git - пропуск корня с сохранением предыдущего состояния,
+/// монитор живёт дальше.
 /// </summary>
 public sealed class ProjectGitMonitor : IObservationSource, IDisposable
 {
@@ -30,8 +32,9 @@ public sealed class ProjectGitMonitor : IObservationSource, IDisposable
     private readonly TimeSpan _pollInterval;
     private readonly object _gate = new();
 
-    // Корень проекта → его диффер. Ключи уже нормализованы реестром к одному регистру
+    // Корень проекта → его дифферы. Ключи уже нормализованы реестром к одному регистру
     private readonly Dictionary<string, GitStateDiffer> _differs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GitHeadDiffer> _headDiffers = new(StringComparer.Ordinal);
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -72,7 +75,9 @@ public sealed class ProjectGitMonitor : IObservationSource, IDisposable
                 return;
             }
 
-            _differs.Clear(); // перезапуск - новая точка отсчёта по всем корням
+            // Перезапуск - новая точка отсчёта по всем корням
+            _differs.Clear();
+            _headDiffers.Clear();
 
             var cts = new CancellationTokenSource();
             _cts = cts;
@@ -146,6 +151,7 @@ public sealed class ProjectGitMonitor : IObservationSource, IDisposable
             if (!roots.Contains(known))
             {
                 _differs.Remove(known);
+                _headDiffers.Remove(known);
             }
         }
 
@@ -194,6 +200,30 @@ public sealed class ProjectGitMonitor : IObservationSource, IDisposable
                     EventKind.FileChanged,
                     FileChange: change.Kind,
                     FileSource: FileActivitySource.Git));
+            }
+
+            // HEAD и ветка: коммит или переключение ветки с прошлого тика
+            if (!_headDiffers.TryGetValue(root, out var headDiffer))
+            {
+                headDiffer = new GitHeadDiffer();
+                _headDiffers[root] = headDiffer;
+            }
+
+            var headChange = headDiffer.Process(state.Branch, state.HeadCommit, state.HeadSubject);
+            if (headChange is not null)
+            {
+                // Не файловое событие: FileChange/FileSource не заполняются,
+                // короткая строка-факт (GitRef) пишется в title события
+                Emit(new Observation(
+                    new Observable(
+                        Kind: ObservableKind.GitRef,
+                        Value: headChange.Value,
+                        ProcessId: null,
+                        ApplicationName: null,
+                        ApplicationExePath: null,
+                        Timestamp: _clock.UtcNow,
+                        ProjectRootPath: root),
+                    headChange.Kind));
             }
         }
     }

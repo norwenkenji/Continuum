@@ -65,6 +65,19 @@ public enum SnapshotReason
     SessionEnd
 }
 
+/// <summary>Вердикт движка «Где я остановился?» (readme, таблица истинности).</summary>
+public enum StoppedStatus
+{
+    /// <summary>Git-репозиторий не найден - не ошибка, а другой сценарий.</summary>
+    Unclear,
+
+    /// <summary>Есть dirty-файлы ИЛИ последнее событие - правка файла.</summary>
+    MaybeUnfinished,
+
+    /// <summary>Dirty-файлов нет И последнее событие - commit/push.</summary>
+    Completed
+}
+
 /// <summary>Способ получения CWD терминала (terminals.source).</summary>
 public enum TerminalSource
 {

@@ -16,5 +16,11 @@ public enum ObservableKind
     CommandLine,
 
     /// <summary>Рабочая директория процесса.</summary>
-    Cwd
+    Cwd,
+
+    /// <summary>
+    /// Короткая строка-факт из git (ветка, «hash subject» коммита). Пишется
+    /// в title события; семантика приватности - как у заголовка окна.
+    /// </summary>
+    GitRef
 }

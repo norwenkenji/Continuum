@@ -85,6 +85,7 @@ public static class CompositionRoot
             sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>()));
         services.AddSingleton<IIdleTimeSource, IdleTimeSource>();
         services.AddSingleton<SessionSupervisor>();
+        services.AddSingleton<Stopped.StoppedEngine>();
 
         // Трей
         services.AddSingleton<TrayIcon>();

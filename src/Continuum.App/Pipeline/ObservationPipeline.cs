@@ -108,7 +108,7 @@ public sealed class ObservationPipeline
                 Kind: observation.EventKind,
                 ApplicationId: applicationId,
                 ProjectId: projectId,
-                Title: o.Kind == ObservableKind.WindowTitle ? value : null,
+                Title: o.Kind is ObservableKind.WindowTitle or ObservableKind.GitRef ? value : null,
                 Path: o.Kind is ObservableKind.FilePath or ObservableKind.Cwd ? value : null,
                 Url: o.Kind == ObservableKind.Url ? value : null,
                 MetaJson: o.Kind == ObservableKind.CommandLine && value is not null

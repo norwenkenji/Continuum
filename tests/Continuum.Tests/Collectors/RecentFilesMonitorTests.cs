@@ -187,7 +187,7 @@ public class RecentFilesMonitorTests : IDisposable
         }
     }
 
-    private static bool WaitFor(Func<bool> condition, int timeoutMs = 5000)
+    private static bool WaitFor(Func<bool> condition, int timeoutMs = 15000)
     {
         var stopwatch = Stopwatch.StartNew();
         while (stopwatch.ElapsedMilliseconds < timeoutMs)

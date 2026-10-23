@@ -68,7 +68,8 @@ internal sealed class FakeRepository : IRepository
     }
 
     public Task<IReadOnlyList<Event>> GetSessionEventsAsync(long sessionId, CancellationToken ct = default)
-        => Task.FromResult<IReadOnlyList<Event>>([.. Events.Where(e => e.SessionId == sessionId)]);
+        => Task.FromResult<IReadOnlyList<Event>>(
+            [.. Events.Where(e => e.SessionId == sessionId).OrderBy(e => e.Ts)]);
 
     public Task<DateTimeOffset?> GetLastEventTsAsync(long sessionId, CancellationToken ct = default)
     {
@@ -85,8 +86,15 @@ internal sealed class FakeRepository : IRepository
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<FileActivity>> GetSessionFileActivityAsync(long sessionId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<FileActivity>>(
+            [.. FileActivities.Where(f => f.SessionId == sessionId).OrderBy(f => f.Ts)]);
+
     public Task<Project?> FindProjectByRootPathAsync(string rootPath, CancellationToken ct = default)
         => Task.FromResult(Projects.FirstOrDefault(p => p.RootPath == rootPath));
+
+    public Task<Project?> GetProjectAsync(long projectId, CancellationToken ct = default)
+        => Task.FromResult(Projects.FirstOrDefault(p => p.Id == projectId));
 
     public Task<long> UpsertProjectAsync(Project project, CancellationToken ct = default)
     {

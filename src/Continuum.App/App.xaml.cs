@@ -22,6 +22,7 @@ namespace Continuum
     {
         private ServiceProvider? _services;
         private TrayIcon? _tray;
+        private System.Threading.Timer? _exitTimer;
         private bool _sessionClosedOnShutdown;
 
         protected override void OnStartup(StartupEventArgs e)
@@ -66,7 +67,8 @@ namespace Continuum
             if (int.TryParse(Environment.GetEnvironmentVariable("CONTINUUM_EXIT_AFTER_S"), out var exitAfterSeconds)
                 && exitAfterSeconds > 0)
             {
-                new System.Threading.Timer(
+                // Ссылка в поле: без неё таймер собирается GC до срабатывания
+                _exitTimer = new System.Threading.Timer(
                     _ => Dispatcher.InvokeAsync(Shutdown),
                     null,
                     dueTime: exitAfterSeconds * 1000,
@@ -152,6 +154,7 @@ namespace Continuum
             }
 
             _tray?.Dispose();
+            _exitTimer?.Dispose();
             _services?.Dispose();
             base.OnExit(e);
         }

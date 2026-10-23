@@ -169,6 +169,35 @@ public sealed class SqliteRepository : IRepository
         await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<FileActivity>> GetSessionFileActivityAsync(long sessionId, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, session_id, ts, project_id, path, change_kind, source
+            FROM file_activity
+            WHERE session_id = $session_id
+            ORDER BY ts, id;
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        var result = new List<FileActivity>();
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            result.Add(new FileActivity(
+                Id: reader.GetInt64(0),
+                SessionId: reader.GetInt64(1),
+                Ts: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
+                ProjectId: reader.IsDBNull(3) ? null : reader.GetInt64(3),
+                Path: reader.GetString(4),
+                ChangeKind: EnumCodec.FromDb<FileChangeKind>(reader.GetString(5)),
+                Source: EnumCodec.FromDb<FileActivitySource>(reader.GetString(6))));
+        }
+
+        return result;
+    }
+
     // ---------------- Проекты и приложения ----------------
 
     public async Task<Project?> FindProjectByRootPathAsync(string rootPath, CancellationToken ct = default)
@@ -181,6 +210,26 @@ public sealed class SqliteRepository : IRepository
             WHERE root_path = $root_path;
             """;
         command.Parameters.AddWithValue("$root_path", rootPath);
+
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return MapProject(reader);
+    }
+
+    public async Task<Project?> GetProjectAsync(long projectId, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, name, root_path, git_remote, first_seen, last_seen
+            FROM projects
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", projectId);
 
         await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
         if (!await reader.ReadAsync(ct).ConfigureAwait(false))
