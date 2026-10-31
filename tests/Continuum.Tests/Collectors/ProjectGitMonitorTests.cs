@@ -32,7 +32,7 @@ public class ProjectGitMonitorTests
         var events = new List<Observation>();
         using var monitor = CreateMonitor(git, events);
         monitor.Start();
-        WaitBaseline();
+        WaitBaseline(git);
 
         git.SetState(Root, State("main", Commit2, "feat: новая работа"));
 
@@ -57,7 +57,7 @@ public class ProjectGitMonitorTests
         var events = new List<Observation>();
         using var monitor = CreateMonitor(git, events);
         monitor.Start();
-        WaitBaseline();
+        WaitBaseline(git);
 
         git.SetState(Root, State("feature", Commit1, "initial"));
 
@@ -76,7 +76,7 @@ public class ProjectGitMonitorTests
         var events = new List<Observation>();
         using var monitor = CreateMonitor(git, events);
         monitor.Start();
-        WaitBaseline();
+        WaitBaseline(git);
 
         // Промежуточные тики без git - состояние не сбрасывается
         git.SetUnavailable(Root);
@@ -134,7 +134,13 @@ public class ProjectGitMonitorTests
         return monitor;
     }
 
-    private static void WaitBaseline() => Thread.Sleep(200);
+    /// <summary>
+    /// Ждёт прохождения базового тика: детерминированно, по счётчику опросов
+    /// фейка (фиксированный Sleep проигрывал гонку под параллельной нагрузкой:
+    /// первый тик мог случиться ПОСЛЕ смены состояния и молча съесть его в базу).
+    /// </summary>
+    private static void WaitBaseline(FakeGitClient git) =>
+        Assert.True(WaitFor(() => git.StateCalls >= 1), "базовый тик не прошёл за 5 с");
 
     private static int LockedCount(List<Observation> events, EventKind kind)
     {
@@ -181,6 +187,9 @@ public class ProjectGitMonitorTests
     {
         private readonly Dictionary<string, GitStateInfo> _states = new(StringComparer.Ordinal);
 
+        /// <summary>Сколько раз монитор опросил состояние (для детерминированного базового тика).</summary>
+        public int StateCalls { get; private set; }
+
         public void SetState(string root, GitStateInfo state)
         {
             lock (_states)
@@ -206,6 +215,7 @@ public class ProjectGitMonitorTests
         {
             lock (_states)
             {
+                StateCalls++;
                 return Task.FromResult(
                     _states.TryGetValue(repositoryRoot, out var state) ? state : GitStateInfo.Unavailable);
             }

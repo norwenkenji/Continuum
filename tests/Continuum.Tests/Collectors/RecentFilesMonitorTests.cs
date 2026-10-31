@@ -29,6 +29,7 @@ public class RecentFilesMonitorTests : IDisposable
     private readonly string _docsFolder;
     private readonly Dictionary<string, string?> _targets = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Observation> _events = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _resolveCounts = new();
     private readonly RecentFilesMonitor _monitor;
 
     public RecentFilesMonitorTests()
@@ -42,7 +43,15 @@ public class RecentFilesMonitorTests : IDisposable
             new SystemClock(),
             NullLogger<RecentFilesMonitor>.Instance,
             _recentFolder,
-            link => _targets.TryGetValue(link, out var target) ? target : null,
+            link =>
+            {
+                // Счётчик вызовов резолвера - маркер «тик прошёл по этому ярлыку»:
+                // базовый тик ждём детерминированно, а не фиксированным сном
+                // (при параллельной нагрузке первый тик опаздывал дольше сна,
+                // свежий ярлык попадал в базовый снимок - тест краснел по таймауту)
+                _resolveCounts.AddOrUpdate(link, 1, static (_, count) => count + 1);
+                return _targets.TryGetValue(link, out var target) ? target : null;
+            },
             PollInterval);
         _monitor.Observed += (_, observation) =>
         {
@@ -71,8 +80,7 @@ public class RecentFilesMonitorTests : IDisposable
     [Fact]
     public void New_link_after_baseline_emits_file_opened()
     {
-        _monitor.Start();
-        WaitBaseline();
+        StartAndWaitBaseline();
 
         var target = CreateDocument("b.txt");
         CreateLink("b.lnk", target);
@@ -89,8 +97,7 @@ public class RecentFilesMonitorTests : IDisposable
     [Fact]
     public void Same_mtime_does_not_re_emit()
     {
-        _monitor.Start();
-        WaitBaseline();
+        StartAndWaitBaseline();
 
         var target = CreateDocument("c.txt");
         var link = CreateLink("c.lnk", target);
@@ -104,8 +111,7 @@ public class RecentFilesMonitorTests : IDisposable
     [Fact]
     public void Changed_mtime_emits_again()
     {
-        _monitor.Start();
-        WaitBaseline();
+        StartAndWaitBaseline();
 
         var target = CreateDocument("d.txt");
         var link = CreateLink("d.lnk", target);
@@ -120,8 +126,7 @@ public class RecentFilesMonitorTests : IDisposable
     [Fact]
     public void Broken_and_invalid_links_are_skipped()
     {
-        _monitor.Start();
-        WaitBaseline();
+        StartAndWaitBaseline();
 
         // Битый ярлык: разрешение вернуло null
         var broken = Path.Combine(_recentFolder, "broken.lnk");
@@ -153,8 +158,18 @@ public class RecentFilesMonitorTests : IDisposable
         }
     }
 
-    /// <summary>Ждёт прохождения базового тика (первый опрос - молчаливый снимок).</summary>
-    private static void WaitBaseline() => Thread.Sleep(250);
+    /// <summary>
+    /// Стартует монитор и детерминированно ждёт базовый тик: ярлык-сентинел
+    /// создаётся до старта, база считается пройденной, когда резолвер был
+    /// вызван для него. Фиксированный сон здесь заменён сознательно.
+    /// </summary>
+    private void StartAndWaitBaseline()
+    {
+        var sentinel = CreateLink("zz-sentinel.lnk", CreateDocument("zz-sentinel.txt"));
+        _monitor.Start();
+        Assert.True(WaitFor(() => _resolveCounts.TryGetValue(sentinel, out var count) && count >= 1),
+            "базовый тик не прошёл за 15 секунд");
+    }
 
     private string CreateDocument(string name)
     {

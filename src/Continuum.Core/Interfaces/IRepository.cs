@@ -60,6 +60,23 @@ public interface IRepository
     /// <summary>Сохраняет снапшот со всеми дочерними наборами в одной транзакции. Возвращает id снапшота.</summary>
     Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default);
 
+    /// <summary>Последний снапшот сессии; null - сессия без снапшотов.</summary>
+    Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default);
+
+    // Планы восстановления
+
+    /// <summary>Создаёт план со всеми шагами в одной транзакции. Возвращает id плана.</summary>
+    Task<long> CreateRestorePlanAsync(RestorePlan plan, CancellationToken ct = default);
+
+    /// <summary>Обновляет статус плана (status, started_at, finished_at).</summary>
+    Task SetRestorePlanStatusAsync(long planId, RestorePlanStatus status, DateTimeOffset? startedAt, DateTimeOffset? finishedAt, CancellationToken ct = default);
+
+    /// <summary>Фиксирует результат шага: result, error, duration_ms.</summary>
+    Task SetRestoreStepResultAsync(long stepId, RestoreStepResult result, string? error, long? durationMs, CancellationToken ct = default);
+
+    /// <summary>Последний план снапшота со шагами; null - планов нет (идемпотентность повторного восстановления).</summary>
+    Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default);
+
     // Настройки
 
     Task<string?> GetSettingAsync(string key, CancellationToken ct = default);

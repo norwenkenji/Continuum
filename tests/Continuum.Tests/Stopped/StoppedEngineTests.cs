@@ -282,6 +282,11 @@ public class StoppedEngineTests
         public Task<long> UpsertProjectAsync(Project project, CancellationToken ct = default) => _inner.UpsertProjectAsync(project, ct);
         public Task<long> UpsertApplicationAsync(ApplicationInfo application, CancellationToken ct = default) => _inner.UpsertApplicationAsync(application, ct);
         public Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default) => _inner.SaveSnapshotAsync(snapshot, ct);
+        public Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default) => _inner.GetLastSnapshotAsync(sessionId, ct);
+        public Task<long> CreateRestorePlanAsync(RestorePlan plan, CancellationToken ct = default) => _inner.CreateRestorePlanAsync(plan, ct);
+        public Task SetRestorePlanStatusAsync(long planId, RestorePlanStatus status, DateTimeOffset? startedAt, DateTimeOffset? finishedAt, CancellationToken ct = default) => _inner.SetRestorePlanStatusAsync(planId, status, startedAt, finishedAt, ct);
+        public Task SetRestoreStepResultAsync(long stepId, RestoreStepResult result, string? error, long? durationMs, CancellationToken ct = default) => _inner.SetRestoreStepResultAsync(stepId, result, error, durationMs, ct);
+        public Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default) => _inner.GetLastRestorePlanAsync(snapshotId, ct);
         public Task<string?> GetSettingAsync(string key, CancellationToken ct = default) => _inner.GetSettingAsync(key, ct);
         public Task SetSettingAsync(string key, string value, CancellationToken ct = default) => _inner.SetSettingAsync(key, value, ct);
     }

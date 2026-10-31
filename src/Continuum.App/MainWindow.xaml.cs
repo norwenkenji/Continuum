@@ -1,20 +1,25 @@
 using System.ComponentModel;
 using System.Windows;
+using Continuum.Presentation;
 
 namespace Continuum
 {
     /// <summary>
-    /// Главное окно. Закрытие крестиком прячет окно в трей - рекордер
-    /// продолжает работать фоном; настоящий выход только через AllowClose()
+    /// Главное окно (MVVM: только привязка DataContext и поведение окна -
+    /// трей, скрытие крестиком). Данные и команды - в MainViewModel,
+    /// биндинги - в XAML. Настоящий выход только через AllowClose()
     /// (меню трея «Выход»).
     /// </summary>
     public partial class MainWindow : Window
     {
         private bool _allowClose;
 
-        public MainWindow()
+        /// <param name="viewModel">Модель представления; injectится из CompositionRoot.</param>
+        public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
+            DataContext = viewModel;
+            _ = viewModel.RefreshAsync();
         }
 
         /// <summary>Разрешает настоящее закрытие (выход из приложения).</summary>

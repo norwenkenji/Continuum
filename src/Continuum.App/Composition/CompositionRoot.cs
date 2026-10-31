@@ -87,10 +87,18 @@ public static class CompositionRoot
         services.AddSingleton<SessionSupervisor>();
         services.AddSingleton<Stopped.StoppedEngine>();
 
+        // Restore Engine (шаг 6): резолвер путей приложений, запуск, план
+        services.AddSingleton<Restore.ApplicationPathResolver>();
+        services.AddSingleton<IApplicationResolver>(sp => sp.GetRequiredService<Restore.ApplicationPathResolver>());
+        services.AddSingleton<IProcessLauncher, Restore.ProcessLauncher>();
+        services.AddSingleton<Restore.RestoreService>();
+        services.AddTransient<Presentation.RestorePlanViewModel>();
+
         // Трей
         services.AddSingleton<TrayIcon>();
 
-        // Окна
+        // Окна и модели представления (MVVM, шаг 6)
+        services.AddSingleton<Presentation.MainViewModel>();
         services.AddTransient<MainWindow>();
 
         return services.BuildServiceProvider();

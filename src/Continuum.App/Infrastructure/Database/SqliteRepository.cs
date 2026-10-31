@@ -385,6 +385,200 @@ public sealed class SqliteRepository : IRepository
         return snapshotId;
     }
 
+    public async Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, session_id, ts, reason, schema_version, summary_json
+            FROM snapshots
+            WHERE session_id = $session_id
+            ORDER BY ts DESC, id DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$session_id", sessionId);
+
+        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        // Дочерние наборы не грузим: план строится из событий сессии и справочников,
+        // снапшот нужен как якорь (id/время) - см. RestoreEngine
+        return new Snapshot(
+            Id: reader.GetInt64(0),
+            SessionId: reader.GetInt64(1),
+            Ts: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
+            Reason: EnumCodec.FromDb<SnapshotReason>(reader.GetString(3)),
+            SchemaVersion: reader.GetInt32(4),
+            SummaryJson: reader.GetString(5));
+    }
+
+    // ---------------- Планы восстановления ----------------
+
+    public async Task<long> CreateRestorePlanAsync(RestorePlan plan, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        using var transaction = connection.BeginTransaction();
+
+        long planId;
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO restore_plans (snapshot_id, created_at, dry_run, status, started_at, finished_at)
+                VALUES ($snapshot_id, $created_at, $dry_run, $status, $started_at, $finished_at);
+                SELECT last_insert_rowid();
+                """;
+            command.Parameters.AddWithValue("$snapshot_id", plan.SnapshotId);
+            command.Parameters.AddWithValue("$created_at", plan.CreatedAt.ToUnixTimeSeconds());
+            command.Parameters.AddWithValue("$dry_run", plan.DryRun ? 1 : 0);
+            command.Parameters.AddWithValue("$status", EnumCodec.ToDb(plan.Status));
+            command.Parameters.AddWithValue("$started_at", (object?)plan.StartedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
+            command.Parameters.AddWithValue("$finished_at", (object?)plan.FinishedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
+            planId = (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        }
+
+        foreach (var step in plan.Steps)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO restore_steps (plan_id, seq, strategy, target, args_json, result, error, duration_ms)
+                VALUES ($plan_id, $seq, $strategy, $target, $args_json, $result, $error, $duration_ms);
+                """;
+            command.Parameters.AddWithValue("$plan_id", planId);
+            command.Parameters.AddWithValue("$seq", step.Seq);
+            command.Parameters.AddWithValue("$strategy", EnumCodec.ToDb(step.Strategy));
+            command.Parameters.AddWithValue("$target", (object?)step.Target ?? DBNull.Value);
+            command.Parameters.AddWithValue("$args_json", (object?)step.ArgsJson ?? DBNull.Value);
+            command.Parameters.AddWithValue("$result", (object?)step.Result is null ? DBNull.Value : EnumCodec.ToDb(step.Result!.Value));
+            command.Parameters.AddWithValue("$error", (object?)step.Error ?? DBNull.Value);
+            command.Parameters.AddWithValue("$duration_ms", (object?)step.DurationMs ?? DBNull.Value);
+            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        transaction.Commit();
+        return planId;
+    }
+
+    public async Task SetRestorePlanStatusAsync(long planId, RestorePlanStatus status, DateTimeOffset? startedAt, DateTimeOffset? finishedAt, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE restore_plans
+            SET status = $status, started_at = $started_at, finished_at = $finished_at
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", planId);
+        command.Parameters.AddWithValue("$status", EnumCodec.ToDb(status));
+        command.Parameters.AddWithValue("$started_at", (object?)startedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$finished_at", (object?)finishedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task SetRestoreStepResultAsync(long stepId, RestoreStepResult result, string? error, long? durationMs, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE restore_steps
+            SET result = $result, error = $error, duration_ms = $duration_ms
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", stepId);
+        command.Parameters.AddWithValue("$result", EnumCodec.ToDb(result));
+        command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
+        command.Parameters.AddWithValue("$duration_ms", (object?)durationMs ?? DBNull.Value);
+        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default)
+    {
+        await using var connection = _factory.OpenConnection();
+
+        long planId;
+        bool dryRun;
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT id, dry_run
+                FROM restore_plans
+                WHERE snapshot_id = $snapshot_id
+                ORDER BY id DESC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
+
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            planId = reader.GetInt64(0);
+            dryRun = reader.GetInt64(1) != 0;
+        }
+
+        // Шаги - по plan_id без сортировки в SQL: seq нужен как порядок
+        var steps = new List<RestoreStep>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT id, seq, strategy, target, args_json, result, error, duration_ms
+                FROM restore_steps
+                WHERE plan_id = $plan_id
+                ORDER BY seq;
+                """;
+            command.Parameters.AddWithValue("$plan_id", planId);
+
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                steps.Add(new RestoreStep(
+                    Id: reader.GetInt64(0),
+                    PlanId: planId,
+                    Seq: reader.GetInt32(1),
+                    Strategy: EnumCodec.FromDb<RestoreStrategyKind>(reader.GetString(2)),
+                    Target: reader.IsDBNull(3) ? null : reader.GetString(3),
+                    ArgsJson: reader.IsDBNull(4) ? null : reader.GetString(4),
+                    Result: reader.IsDBNull(5) ? null : EnumCodec.FromDb<RestoreStepResult>(reader.GetString(5)),
+                    Error: reader.IsDBNull(6) ? null : reader.GetString(6),
+                    DurationMs: reader.IsDBNull(7) ? null : reader.GetInt64(7)));
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT created_at, status, started_at, finished_at
+                FROM restore_plans
+                WHERE id = $id;
+                """;
+            command.Parameters.AddWithValue("$id", planId);
+
+            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            return new RestorePlan(
+                Id: planId,
+                SnapshotId: snapshotId,
+                CreatedAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)),
+                DryRun: dryRun,
+                Status: EnumCodec.FromDb<RestorePlanStatus>(reader.GetString(1)),
+                StartedAt: reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
+                FinishedAt: reader.IsDBNull(3) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)))
+            {
+                Steps = steps,
+            };
+        }
+    }
+
     // ---------------- Настройки ----------------
 
     public async Task<string?> GetSettingAsync(string key, CancellationToken ct = default)

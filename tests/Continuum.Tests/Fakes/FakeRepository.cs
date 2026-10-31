@@ -25,6 +25,10 @@ internal sealed class FakeRepository : IRepository
 
     public List<Snapshot> Snapshots { get; } = [];
 
+    private readonly List<RestorePlan> _restorePlans = [];
+
+    public IReadOnlyList<RestorePlan> RestorePlans => _restorePlans;
+
     public Func<Event, Task>? OnAppendEvent { get; set; }
 
     public Task<long> CreateSessionAsync(Session session, CancellationToken ct = default)
@@ -122,6 +126,48 @@ internal sealed class FakeRepository : IRepository
         Snapshots.Add(saved);
         return Task.FromResult(saved.Id);
     }
+
+    public Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default)
+        => Task.FromResult(Snapshots.Where(s => s.SessionId == sessionId).OrderByDescending(s => s.Ts).ThenByDescending(s => s.Id).FirstOrDefault());
+
+    public Task<long> CreateRestorePlanAsync(RestorePlan plan, CancellationToken ct = default)
+    {
+        var planId = _nextId++;
+        var steps = plan.Steps.Select((s, i) => s with { Id = _nextId++, PlanId = planId }).ToList();
+        _restorePlans.Add(plan with { Id = planId, Steps = steps });
+        return Task.FromResult(planId);
+    }
+
+    public Task SetRestorePlanStatusAsync(long planId, RestorePlanStatus status, DateTimeOffset? startedAt, DateTimeOffset? finishedAt, CancellationToken ct = default)
+    {
+        var index = _restorePlans.FindIndex(p => p.Id == planId);
+        if (index >= 0)
+        {
+            _restorePlans[index] = _restorePlans[index] with { Status = status, StartedAt = startedAt, FinishedAt = finishedAt };
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SetRestoreStepResultAsync(long stepId, RestoreStepResult result, string? error, long? durationMs, CancellationToken ct = default)
+    {
+        foreach (var plan in _restorePlans)
+        {
+            var index = plan.Steps.ToList().FindIndex(s => s.Id == stepId);
+            if (index >= 0)
+            {
+                var steps = plan.Steps.ToList();
+                steps[index] = steps[index] with { Result = result, Error = error, DurationMs = durationMs };
+                _restorePlans[_restorePlans.IndexOf(plan)] = plan with { Steps = steps };
+                break;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default)
+        => Task.FromResult(_restorePlans.Where(p => p.SnapshotId == snapshotId).OrderByDescending(p => p.Id).FirstOrDefault());
 
     public Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
         => Task.FromResult<string?>(null);
