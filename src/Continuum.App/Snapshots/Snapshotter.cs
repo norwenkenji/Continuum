@@ -33,6 +33,8 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
     private readonly IClock _clock;
     private readonly ILogger<Snapshotter> _logger;
     private readonly TimeSpan _interval;
+    private readonly IOpenFilesProvider? _openFiles;
+    private readonly IProjectResolver? _projectResolver;
     private readonly SemaphoreSlim _saveLock = new(1, 1);
 
     private CancellationTokenSource? _cts;
@@ -46,7 +48,9 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         IPrivacyFilter privacy,
         IClock clock,
         ILogger<Snapshotter> logger,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        IOpenFilesProvider? openFiles = null,
+        IProjectResolver? projectResolver = null)
     {
         _repository = repository;
         _session = session;
@@ -56,6 +60,8 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         _clock = clock;
         _logger = logger;
         _interval = interval ?? DefaultInterval;
+        _openFiles = openFiles;
+        _projectResolver = projectResolver;
     }
 
     public void Start()
@@ -147,9 +153,12 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
                 }
             }
 
+            var openFiles = await CollectOpenFilesAsync(now, ct).ConfigureAwait(false);
+
             var snapshot = new Snapshot(0, sessionId, now, reason, CurrentSchemaVersion, BuildSummaryJson(gitStates))
             {
                 GitStates = gitStates,
+                OpenFiles = openFiles,
             };
             var id = await _repository.SaveSnapshotAsync(snapshot, ct).ConfigureAwait(false);
             _logger.LogDebug("Снапшот {Id} ({Reason}): {Count} проектов", id, reason, gitStates.Count);
@@ -159,6 +168,56 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         {
             _saveLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Открытые файлы для снапшота (шаг 7): провайдер опрашивается на момент
+    /// снапшота; пути проходят privacy-фильтр (как dirty-файлы), проект
+    /// определяется через резолвер git root. Провайдера нет или он недоступен -
+    /// снапшот без open_files (честная деградация).
+    /// </summary>
+    private async Task<List<OpenFile>> CollectOpenFilesAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var result = new List<OpenFile>();
+        if (_openFiles is null)
+        {
+            return result;
+        }
+
+        try
+        {
+            foreach (var file in await _openFiles.GetOpenFilesAsync(ct).ConfigureAwait(false))
+            {
+                if (string.IsNullOrWhiteSpace(file.Path))
+                {
+                    continue;
+                }
+
+                var probe = new Observable(ObservableKind.FilePath, file.Path, null, null, null, now, null);
+                if (!_privacy.Allow(probe))
+                {
+                    continue;
+                }
+
+                long? projectId = null;
+                if (_projectResolver is not null)
+                {
+                    var root = _projectResolver.ResolveRoot(file.Path);
+                    if (root is not null)
+                    {
+                        projectId = _projects.GetProjectId(root);
+                    }
+                }
+
+                result.Add(file with { Id = 0, SnapshotId = 0, ProjectId = projectId });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Не удалось собрать открытые файлы - снапшот без open_files");
+        }
+
+        return result;
     }
 
     private async Task<GitState> BuildGitStateAsync(long projectId, string root, CancellationToken ct)

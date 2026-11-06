@@ -598,7 +598,7 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 6 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 258 тестов зелёные).
+Сейчас: **шаг 7 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 271 тест зелёные).
 
 Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
@@ -614,9 +614,11 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 Шаг 6 дал: Restore Engine (`RestoreService`: построение плана - хосты (StartProcess) затем последние существующие файлы сессии (OpenFile); план - восстановление снапшота, без снапшота не выполняется и не пишется; запись плана ДО выполнения, результат каждого шага - сразу после шага; итог success/partial/failed; падение шага не отменяет остальные; dry-run помечает всё Skipped и не запускает ничего; повтор не плодит дубликаты - уже запущенный процесс пропускается); резолвер путей приложений `ApplicationPathResolver` (App Paths HKCU/HKLM/Wow6432Node → Uninstall → известные расположения → PATH, кэш с отрицательными результатами - план не падает на машине без code/wt в PATH); MVVM-инфраструктура по требованию курсовой (своя, без пакетов: `ViewModelBase`, `RelayCommand`, `MainViewModel` - сводка сессии и вердикт «Где я остановился?» через биндинги, `RestorePlanViewModel` - план с командами построить/dry-run/выполнить; MainWindow на XAML-биндингах, code-behind только про трей); read-методы репозитория для `restore_plans`/`restore_steps` (+`GetLastSnapshotAsync`). Проверено живым прогоном: план из сессии с файлом, dry-run без запусков, реальное выполнение (файл открыт, запущенный notepad пропущен), повторный прогон идемпотентен, notepad срезолвлен через App Paths.
 
+Шаг 7 дал: адаптер VS Code (`VSCodeAdapter` - сразу IObservationSource и IOpenFilesProvider; корни задаются списком: Code, Insiders, VSCodium, Cursor; опрос `User\History\*\entries.json` раз в 45 с - новое сохранение (mtime снапшота позже) даёт событие `file_activity` с `source=vs_code_history`; `GetOpenFilesAsync` читает `workspaceStorage\state.vscdb` (workbench.state: resource + selectionStartLineNumber, best-effort регексами) с fallback на `history.recentlyOpenedPathsList` из globalStorage; `state.vscdb` только ReadOnly, при отказе - копия в %TEMP%, писать в хранилища VS Code запрещено); снапшот теперь включает `open_files` (путь через privacy-фильтр, проект через резолвер) - строка курсора читается из фактов, а не угадывается по заголовкам; восстановление `code -g path:line` собирается из готовых механизмов: хост `code` (резолв через ApplicationPathResolver) + аргумент `-g <путь>:<строка>` из open_files. URI с кириллицей декодируются корректно (нормализация `Uri.LocalPath` для букв диска). Проверено живым прогоном (dev-шов `CONTINUUM_VSCODE_ROOTS` + фейковый корень VS Code): событие сохранения с кириллическим путём легло в `file_activity`, `open_files` со строкой 42 - в снапшот, проект привязан.
+
 Документация в согласованном состоянии: `readme.md` - источник истины по скоупу, нормативные спецификации - в `docs/specs/`.
 
-Следующий шаг - **шаг 7**: адаптер VS Code (`state.vscdb`, `User/History/*/entries.json`, восстановление `code -g path:line`).
+Следующий шаг - **шаг 8**: `--demo` + юнит-тесты (seed-режим с отдельной БД, генератор демо-проекта, полный цикл «Хронология → Где я остановился? → RestorePlan» на машине без VS Code и git).
 
 ---
 

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Continuum.Core.Abstractions;
 using Continuum.Core.Interfaces;
@@ -74,7 +75,8 @@ public static class CompositionRoot
             sp.GetRequiredService<ILogger<Collectors.FileActivityWatcher>>()));
         services.AddSingleton<IObservationSource, Collectors.RecentFilesMonitor>();
 
-        // Снапшоты и полные границы сессии (шаг 4)
+        // Снапшоты и полные границы сессии (шаг 4); с шага 7 снапшот включает
+        // открытые файлы (IOpenFilesProvider - адаптер VS Code)
         services.AddSingleton<ISnapshotter>(sp => new Snapshots.Snapshotter(
             sp.GetRequiredService<IRepository>(),
             sp.GetRequiredService<ISessionContext>(),
@@ -82,10 +84,26 @@ public static class CompositionRoot
             sp.GetRequiredService<IGitClient>(),
             sp.GetRequiredService<IPrivacyFilter>(),
             sp.GetRequiredService<IClock>(),
-            sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>()));
+            sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>(),
+            openFiles: sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>(),
+            projectResolver: sp.GetRequiredService<IProjectResolver>()));
         services.AddSingleton<IIdleTimeSource, IdleTimeSource>();
         services.AddSingleton<SessionSupervisor>();
         services.AddSingleton<Stopped.StoppedEngine>();
+
+        // Адаптер VS Code (шаг 7, data-sources §7): события сохранений из
+        // User\History + открытые файлы для снапшота. Dev-шов живой проверки:
+        // CONTINUUM_VSCODE_ROOTS=<путь>;<путь> - корни вместо дефолтных
+        // (Code, Insiders, VSCodium, Cursor в %APPDATA%)
+        var vscodeRoots = Environment.GetEnvironmentVariable("CONTINUUM_VSCODE_ROOTS")?
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        services.AddSingleton<Adapters.VSCode.VSCodeAdapter>(sp => new Adapters.VSCode.VSCodeAdapter(
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ILogger<Adapters.VSCode.VSCodeAdapter>>(),
+            vscodeRoots is { Length: > 0 } ? vscodeRoots : null,
+            sp.GetRequiredService<IProjectResolver>()));
+        services.AddSingleton<IObservationSource>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
+        services.AddSingleton<IOpenFilesProvider>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
 
         // Restore Engine (шаг 6): резолвер путей приложений, запуск, план
         services.AddSingleton<Restore.ApplicationPathResolver>();

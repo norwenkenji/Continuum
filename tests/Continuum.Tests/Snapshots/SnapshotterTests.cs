@@ -62,6 +62,20 @@ public class SnapshotterTests
         public bool Allow(Observable o) => Rule(o);
     }
 
+    private sealed class StubOpenFiles : IOpenFilesProvider
+    {
+        public List<OpenFile> Files { get; } = [];
+        public Task<IReadOnlyList<OpenFile>> GetOpenFilesAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<OpenFile>>(Files);
+    }
+
+    private sealed class StubResolver : IProjectResolver
+    {
+        // Путь -> нормализованный git root (как ProjectResolver, только по словарю)
+        public Dictionary<string, string> Map { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public string? ResolveRoot(string path) => Map.TryGetValue(path, out var root) ? root : null;
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
 
     private static (Snapshotter, FakeRepository, StubRegistry, StubGit, StubPrivacy) Create(long sessionId = 7)
@@ -86,6 +100,47 @@ public class SnapshotterTests
 
         Assert.Equal(0, id);
         Assert.Empty(repo.Snapshots);
+    }
+
+    [Fact]
+    public async Task Snapshot_includes_open_files_with_project_and_privacy()
+    {
+        var repo = new FakeRepository();
+        var registry = new StubRegistry();
+        registry.Add("c:/work/proj", 11);
+        var privacy = new StubPrivacy { Rule = o => !o.Value!.Contains("secret") };
+        var openFiles = new StubOpenFiles();
+        openFiles.Files.Add(new OpenFile(0, 0, "c:/work/proj/src/a.cs", null, null, 42, Now.AddMinutes(-1), "vscode_state"));
+        openFiles.Files.Add(new OpenFile(0, 0, "c:/work/proj/secret.pem", null, null, 1, Now, "vscode_state"));
+        var resolver = new StubResolver { Map = { ["c:/work/proj/src/a.cs"] = "c:/work/proj" } };
+        var snapshotter = new Snapshotter(
+            repo, new StubSession(7), registry, new StubGit(), privacy, new FixedClock(Now),
+            NullLogger<Snapshotter>.Instance,
+            openFiles: openFiles, projectResolver: resolver);
+
+        await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
+
+        var snapshot = Assert.Single(repo.Snapshots);
+        var file = Assert.Single(snapshot.OpenFiles);
+        Assert.Equal("c:/work/proj/src/a.cs", file.Path);
+        Assert.Equal(11, file.ProjectId);
+        Assert.Equal(42, file.Line);
+        Assert.Equal("vscode_state", file.Source);
+    }
+
+    [Fact]
+    public async Task Snapshot_without_open_files_provider_is_unchanged()
+    {
+        var repo = new FakeRepository();
+        var registry = new StubRegistry();
+        registry.Add("c:/repo", 1);
+        var snapshotter = new Snapshotter(
+            repo, new StubSession(7), registry, new StubGit(), new StubPrivacy(), new FixedClock(Now),
+            NullLogger<Snapshotter>.Instance);
+
+        await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
+
+        Assert.Empty(Assert.Single(repo.Snapshots).OpenFiles);
     }
 
     [Fact]
