@@ -24,12 +24,17 @@ namespace Continuum
         private TrayIcon? _tray;
         private System.Threading.Timer? _exitTimer;
         private bool _sessionClosedOnShutdown;
+        private bool _demoMode;
 
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
-            ServiceProvider services = CompositionRoot.Build();
+            // --demo (readme «Демо-режим как страховка»): отдельная БД, полный
+            // цикл показывается на машине без VS Code и git
+            _demoMode = e.Args.Contains("--demo", StringComparer.OrdinalIgnoreCase);
+
+            ServiceProvider services = CompositionRoot.Build(_demoMode);
             _services = services;
 
             try
@@ -48,6 +53,40 @@ namespace Continuum
                 return;
             }
 
+            // Dev-шов живой проверки выхода: CONTINUUM_EXIT_AFTER_S=<секунды> -
+            // авто-Shutdown через диспетчер (крестик окна прячет в трей,
+            // поэтому graceful-выход из скрипта возможен только так).
+            // До ветки --demo: работает в обоих режимах
+            if (int.TryParse(Environment.GetEnvironmentVariable("CONTINUUM_EXIT_AFTER_S"), out var exitAfterSeconds)
+                && exitAfterSeconds > 0)
+            {
+                // Ссылка в поле: без неё таймер собирается GC до срабатывания
+                _exitTimer = new System.Threading.Timer(
+                    _ => Dispatcher.InvokeAsync(Shutdown),
+                    null,
+                    dueTime: exitAfterSeconds * 1000,
+                    period: Timeout.Infinite);
+            }
+
+            if (_demoMode)
+            {
+                // Демо-режим: засеянные данные, живые коллекторы и сессия
+                // не запускаются - демо-БД остаётся чистой. Идемпотентно:
+                // повторный --demo не дублирует сессию (ключ demo_seeded).
+                services.GetRequiredService<Demo.DemoSeeder>().SeedAsync().GetAwaiter().GetResult();
+
+                _tray = services.GetRequiredService<TrayIcon>();
+                var demoWindow = services.GetRequiredService<MainWindow>();
+                _tray.OpenRequested += (_, _) => demoWindow.ShowFromTray();
+                _tray.ExitRequested += (_, _) =>
+                {
+                    demoWindow.AllowClose();
+                    Shutdown();
+                };
+                demoWindow.Show();
+                return;
+            }
+
             // Сессия - до старта коллекторов: их события пишутся в неё
             services.GetRequiredService<SessionRuntime>().StartAsync().GetAwaiter().GetResult();
 
@@ -59,20 +98,6 @@ namespace Continuum
             {
                 services.GetRequiredService<IProjectRegistry>()
                     .RegisterPathAsync(watchPath).GetAwaiter().GetResult();
-            }
-
-            // Dev-шов живой проверки выхода: CONTINUUM_EXIT_AFTER_S=<секунды> -
-            // авто-Shutdown через диспетчер (крестик окна прячет в трей,
-            // поэтому graceful-выход из скрипта возможен только так)
-            if (int.TryParse(Environment.GetEnvironmentVariable("CONTINUUM_EXIT_AFTER_S"), out var exitAfterSeconds)
-                && exitAfterSeconds > 0)
-            {
-                // Ссылка в поле: без неё таймер собирается GC до срабатывания
-                _exitTimer = new System.Threading.Timer(
-                    _ => Dispatcher.InvokeAsync(Shutdown),
-                    null,
-                    dueTime: exitAfterSeconds * 1000,
-                    period: Timeout.Infinite);
             }
 
             var pipeline = services.GetRequiredService<ObservationPipeline>();
@@ -110,7 +135,7 @@ namespace Continuum
         {
             try
             {
-                if (_services is not null)
+                if (_services is not null && !_demoMode)
                 {
                     _services.GetRequiredService<SessionSupervisor>().Stop();
                     _services.GetRequiredService<ISnapshotter>()
@@ -132,7 +157,8 @@ namespace Continuum
         {
             try
             {
-                if (_services is not null && !_sessionClosedOnShutdown)
+                // В демо-режиме сессии и коллекторов нет - закрывать нечего
+                if (_services is not null && !_sessionClosedOnShutdown && !_demoMode)
                 {
                     _services.GetRequiredService<SessionSupervisor>().Stop();
                     ((Snapshots.Snapshotter)_services.GetRequiredService<ISnapshotter>()).Stop();

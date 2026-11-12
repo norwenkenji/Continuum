@@ -13,4 +13,12 @@ public sealed class AppPaths : IAppPaths
     public string DataDirectory { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Continuum");
+
+    public string DatabasePath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Continuum", "continuum.db");
+
+    public string DemoDatabasePath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Continuum", "continuum.demo.db");
 }

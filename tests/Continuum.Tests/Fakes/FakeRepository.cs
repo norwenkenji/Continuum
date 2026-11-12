@@ -29,6 +29,10 @@ internal sealed class FakeRepository : IRepository
 
     public IReadOnlyList<RestorePlan> RestorePlans => _restorePlans;
 
+    // Настройки хранятся по-настоящему: тесты идемпотентности (demo_seeded)
+    // проверяют ключ после записи; при отсутствии ключа - null, как и раньше
+    private readonly Dictionary<string, string> _settings = new(StringComparer.Ordinal);
+
     public Func<Event, Task>? OnAppendEvent { get; set; }
 
     public Task<long> CreateSessionAsync(Session session, CancellationToken ct = default)
@@ -170,8 +174,11 @@ internal sealed class FakeRepository : IRepository
         => Task.FromResult(_restorePlans.Where(p => p.SnapshotId == snapshotId).OrderByDescending(p => p.Id).FirstOrDefault());
 
     public Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
-        => Task.FromResult<string?>(null);
+        => Task.FromResult(_settings.TryGetValue(key, out var value) ? value : null);
 
     public Task SetSettingAsync(string key, string value, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        _settings[key] = value;
+        return Task.CompletedTask;
+    }
 }

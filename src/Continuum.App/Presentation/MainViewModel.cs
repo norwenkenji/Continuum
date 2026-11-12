@@ -26,12 +26,24 @@ public sealed class MainViewModel : ViewModelBase
     private string _sessionSummaryText = "Сессий ещё не было";
     private string? _verdictDetail;
 
-    public MainViewModel(IRepository repository, StoppedEngine stopped)
+    public MainViewModel(
+        IRepository repository,
+        StoppedEngine stopped,
+        TimelineViewModel timeline,
+        RestorePlanViewModel restorePlan)
     {
         _repository = repository;
         _stopped = stopped;
+        Timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
+        RestorePlan = restorePlan ?? throw new ArgumentNullException(nameof(restorePlan));
         RefreshCommand = new RelayCommand(async () => await RefreshAsync());
     }
+
+    /// <summary>Хронология последней сессии (шаг 8).</summary>
+    public TimelineViewModel Timeline { get; }
+
+    /// <summary>План восстановления (шаг 6) - секция главного окна с шага 8.</summary>
+    public RestorePlanViewModel RestorePlan { get; }
 
     /// <summary>Вердикт статуса: «Работа, возможно, не завершена» и т.п.</summary>
     public string VerdictText
@@ -77,13 +89,14 @@ public sealed class MainViewModel : ViewModelBase
 
     public RelayCommand RefreshCommand { get; }
 
-    /// <summary>Собирает сводку и вердикт заново. Никогда не бросает.</summary>
+    /// <summary>Собирает сводку, вердикт и хронологию заново. Никогда не бросает.</summary>
     public async Task RefreshAsync(CancellationToken ct = default)
     {
         try
         {
             await RefreshSessionAsync(ct).ConfigureAwait(false);
             await RefreshVerdictAsync(ct).ConfigureAwait(false);
+            await Timeline.LoadAsync(ct).ConfigureAwait(false);
         }
         catch
         {

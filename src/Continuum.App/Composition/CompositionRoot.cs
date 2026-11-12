@@ -23,7 +23,12 @@ namespace Continuum.Composition;
 /// </summary>
 public static class CompositionRoot
 {
-    public static ServiceProvider Build()
+    /// <summary>
+    /// Собирает контейнер зависимостей. demoMode (--demo): база
+    /// continuum.demo.db - отдельная, чтобы демо-данные не смешивались
+    /// с реальными (readme «Демо-режим как страховка»).
+    /// </summary>
+    public static ServiceProvider Build(bool demoMode = false)
     {
         var services = new ServiceCollection();
 
@@ -33,11 +38,11 @@ public static class CompositionRoot
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IAppPaths, AppPaths>();
 
-        // Хранилище: %LOCALAPPDATA%\Continuum\continuum.db
+        // Хранилище: %LOCALAPPDATA%\Continuum\continuum.db (демо: continuum.demo.db)
         services.AddSingleton(sp =>
         {
             var paths = sp.GetRequiredService<IAppPaths>();
-            return new SqliteConnectionFactory(Path.Combine(paths.DataDirectory, "continuum.db"));
+            return new SqliteConnectionFactory(demoMode ? paths.DemoDatabasePath : paths.DatabasePath);
         });
         services.AddSingleton<DatabaseInitializer>();
         services.AddSingleton<IRepository, SqliteRepository>();
@@ -105,6 +110,9 @@ public static class CompositionRoot
         services.AddSingleton<IObservationSource>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
         services.AddSingleton<IOpenFilesProvider>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
 
+        // Демо-режим (шаг 8): сеятель синтетической сессии в continuum.demo.db
+        services.AddSingleton<Demo.DemoSeeder>();
+
         // Restore Engine (шаг 6): резолвер путей приложений, запуск, план
         services.AddSingleton<Restore.ApplicationPathResolver>();
         services.AddSingleton<IApplicationResolver>(sp => sp.GetRequiredService<Restore.ApplicationPathResolver>());
@@ -115,7 +123,8 @@ public static class CompositionRoot
         // Трей
         services.AddSingleton<TrayIcon>();
 
-        // Окна и модели представления (MVVM, шаг 6)
+        // Окна и модели представления (MVVM, шаги 6 и 8)
+        services.AddSingleton<Presentation.TimelineViewModel>();
         services.AddSingleton<Presentation.MainViewModel>();
         services.AddTransient<MainWindow>();
 

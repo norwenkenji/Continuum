@@ -598,7 +598,7 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 7 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 271 тест зелёные).
+Сейчас: **шаг 8 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 289 тестов зелёные).
 
 Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
@@ -616,9 +616,11 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 Шаг 7 дал: адаптер VS Code (`VSCodeAdapter` - сразу IObservationSource и IOpenFilesProvider; корни задаются списком: Code, Insiders, VSCodium, Cursor; опрос `User\History\*\entries.json` раз в 45 с - новое сохранение (mtime снапшота позже) даёт событие `file_activity` с `source=vs_code_history`; `GetOpenFilesAsync` читает `workspaceStorage\state.vscdb` (workbench.state: resource + selectionStartLineNumber, best-effort регексами) с fallback на `history.recentlyOpenedPathsList` из globalStorage; `state.vscdb` только ReadOnly, при отказе - копия в %TEMP%, писать в хранилища VS Code запрещено); снапшот теперь включает `open_files` (путь через privacy-фильтр, проект через резолвер) - строка курсора читается из фактов, а не угадывается по заголовкам; восстановление `code -g path:line` собирается из готовых механизмов: хост `code` (резолв через ApplicationPathResolver) + аргумент `-g <путь>:<строка>` из open_files. URI с кириллицей декодируются корректно (нормализация `Uri.LocalPath` для букв диска). Проверено живым прогоном (dev-шов `CONTINUUM_VSCODE_ROOTS` + фейковый корень VS Code): событие сохранения с кириллическим путём легло в `file_activity`, `open_files` со строкой 42 - в снапшот, проект привязан.
 
+Шаг 8 дал: демо-режим `Continuum.exe --demo` (`DemoSeeder`: отдельная БД `continuum.demo.db` - демо-данные не смешиваются с реальными; настоящий демо-проект на диске `%LOCALAPPDATA%\Continuum\DemoProject` с README/Program.cs/Main.cs/project.config - файлы существуют, поэтому RestorePlan строится и выполняется через ассоциации; одна реалистичная прошлая сессия: 45 событий - фокус окон, правки файлов, 2 коммита, сон/пробуждение, 20 строк file_activity, снапшот с open_files (README:42, Program.cs:10) и честным git_state available=0; идемпотентность по ключу demo_seeded - повторный запуск не дублирует; живые коллекторы и сессия в демо не стартуют - демо-БД чистая); UI полного цикла в главном окне: секция «ХРОНОЛОГИЯ» (TimelineViewModel + TimelineFormatter - события последней сессии строками «время - описание») и секция «ПЛАН ВОССТАНОВЛЕНИЯ» (RestorePlanViewModel шагами с результатами), команды построить/dry-run/восстановить - кнопками. Проверено живым прогоном: `--demo` на чистом профиле - демо-БД с 45 событиями, основная БД не создаётся; вердикт «Статус неясен» (без git - честная деградация, это часть демо); RestorePlan - 3 шага на существующие файлы, dry-run Success. Полный цикл «Хронология → Где я остановился? → RestorePlan» показывается на машине без VS Code и git.
+
 Документация в согласованном состоянии: `readme.md` - источник истины по скоупу, нормативные спецификации - в `docs/specs/`.
 
-Следующий шаг - **шаг 8**: `--demo` + юнит-тесты (seed-режим с отдельной БД, генератор демо-проекта, полный цикл «Хронология → Где я остановился? → RestorePlan» на машине без VS Code и git).
+Следующий шаг - **шаг 9**: SettingsWindow (исключения приложений/директорий, «Не записывать никогда», retention, полное удаление данных).
 
 ---
 
