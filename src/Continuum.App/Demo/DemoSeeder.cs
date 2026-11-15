@@ -199,14 +199,19 @@ public sealed class DemoSeeder
                 LastSeen: ended), ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
-            // 4. Одна прошлая сессия: вечер работы, завершена пользователем
+            // 4. Одна прошлая сессия: вечер работы, завершена пользователем.
+            // CreateSessionAsync по контракту создаёт сессию в статусе running
+            // (границы сессии задаёт жизненный цикл), поэтому конец сессии
+            // проставляется отдельным вызовом - иначе демо-сессия останется
+            // открытой и хронология покажет «идёт»
             var sessionId = await _repository.CreateSessionAsync(new Session(
                 Id: 0,
                 StartedAt: started,
-                EndedAt: ended,
-                Status: SessionStatus.Ended,
-                EndReason: SessionEndReason.User,
+                EndedAt: null,
+                Status: SessionStatus.Running,
+                EndReason: null,
                 IdleThresholdSeconds: 900), ct).ConfigureAwait(false);
+            await _repository.EndSessionAsync(sessionId, ended, SessionEndReason.User, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
 
             // 5. Справочник приложений

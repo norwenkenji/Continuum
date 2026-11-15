@@ -93,7 +93,7 @@ Collectors → Privacy pipeline → Context Engine → Session / Timeline / Snap
 Стек MVP:
 
 ```text
-Windows + .NET 10 (net10.0-windows) + WPF + SQLite (Microsoft.Data.Sqlite)
+Windows + .NET 10 (net10.0-windows) + WPF + SQLite (Entity Framework Core)
 ```
 
 ---
@@ -140,7 +140,7 @@ Continuum.sln
 │   │                     SnapshotService, RestoreService, ProjectService,
 │   │                     SettingsService, DemoService
 │   ├── Infrastructure
-│   │   ├── Database      SQLite, миграции через PRAGMA user_version
+│   │   ├── Database      SQLite через EF Core (DbContext, миграции EF)
 │   │   ├── Windows       ProcessCollector, WindowCollector, SystemEvents
 │   │   ├── Files         FileActivityCollector, RecentDocuments
 │   │   ├── Git           GitClient (обёртка над git.exe)
@@ -304,7 +304,7 @@ Observable → Filter → Sanitize → Persist
 
 ## Схема БД
 
-Миграции - SQL-скриптами вручную через `PRAGMA user_version`. Без EF.
+Миграции - миграциями Entity Framework Core: модель описывается в `DbContext` (сущности, конфигурации, LINQ), схема создаётся и обновляется `Database.Migrate()`, журнал применённых миграций - `__EFMigrationsHistory`. Ручного SQL в слое данных нет.
 
 **Правило разделения:** в реляционные таблицы выносится то, по чему выполняются запросы (Timeline, «Где я остановился?», RestorePlan, счётчики в `MainWindow`). Всё остальное - в `summary_json` снапшота. Дублирование одного факта в таблице и в JSON не допускается.
 
@@ -459,7 +459,7 @@ CRASH-RECOVERY (при старте)
 | # | Шаг | Критерий готовности |
 | --- | --- | --- |
 | 0 | **Разделение проектов.** `Continuum.Core` (`net10.0`) + `Continuum.App` (`net10.0-windows`), DI-хост, пути `%LOCALAPPDATA%`, `IClock` | Core собирается без `-windows`; из Core недоступны типы WPF и WinAPI |
-| 1 | **Domain + SQLite + privacy-конвейер.** Модели, создание БД, `PRAGMA user_version`, миграции, `IPrivacyFilter`/`ISanitizer` **до первой записи** | БД создаётся при первом запуске; ни одна запись не минует конвейер (проверяется тестом) |
+| 1 | **Domain + SQLite (EF Core) + privacy-конвейер.** Модели, `DbContext` и миграции EF Core, `IPrivacyFilter`/`ISanitizer` **до первой записи** | БД создаётся миграциями EF Core при первом запуске; ни одна запись не минует конвейер (проверяется тестом) |
 | 2 | **Process/Window collector + tray.** Список процессов, `EnumWindows`, активное окно, заголовки, события-на-изменение | Смена активного окна даёт ровно одно событие; tray работает, окно не мешает |
 | 3 | **Project + Git + file_activity.** Определение git root, `GitClient` (`--no-optional-locks`, `GIT_TERMINAL_PROMPT=0`, таймаут, поиск git.exe), dirty-файлы | Проект определяется по пути файла и по CWD; при отсутствии git - `available = 0`, без исключений |
 | 4 | **Session → Timeline → Snapshot.** Границы сессии, append событий, снапшот по таймеру и при выходе, crash-recovery | После kill процесса висячая сессия закрывается при следующем старте; снапшот пишется при `OnSessionEnding` |
@@ -598,9 +598,11 @@ Core (стабилен) → Adapters растут → Community пишет conti
 
 ## Статус
 
-Сейчас: **шаг 8 выполнен**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 289 тестов зелёные).
+Сейчас: **шаг 8 выполнен, слой данных перенесён на Entity Framework Core**. Решение: `src/Continuum.Core` (`net10.0`, без WinAPI и WPF; проверяется архитектурным тестом), `src/Continuum.App` (`net10.0-windows`, WPF, `Continuum.exe`), `tests/Continuum.Tests` (xunit, 287 тестов зелёные).
 
-Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` - `Microsoft.Data.Sqlite` без EF, миграции через `PRAGMA user_version` (`V001__init.sql` встроена в сборку); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
+Слой данных: `ContinuumDbContext` (EF Core 10, провайдер `Microsoft.EntityFrameworkCore.Sqlite`) - сущности таблиц, конфигурации колонок/индексов/внешних ключей, enum-ы snake_case через конвертеры; схема создаётся и обновляется миграцией EF Core (`Infrastructure/Database/Migrations/..._InitialCreate.cs`, журнал `__EFMigrationsHistory`); `SqliteRepository` переписан на LINQ (ручного SQL в слое данных нет), снапшот и план пишутся одной транзакцией EF. БД, созданные до перехода (схема без журнала миграций), подхватываются бэкфиллом журнала - данные не теряются.
+
+Шаг 1 дал: доменные модели; хранилище SQLite в `%LOCALAPPDATA%\Continuum\continuum.db` (изначально `Microsoft.Data.Sqlite` + миграции через `PRAGMA user_version`, сейчас - EF Core с миграциями); `SqliteRepository`; инициализацию БД до показа окна; privacy-конвейер (`ExclusionSet`, `SecretSanitizer`, `PrivacyFilter`).
 
 Шаг 2 дал: конвейер наблюдений `Observable → Filter → Sanitize → Persist` как код (`ObservationPipeline` - ни одна запись не минует его; сбой одного наблюдения не роняет приложение); минимальный жизненный цикл сессии (`SessionRuntime`: crash-recovery висячих сессий, `session_start`/`session_end`, idle-порог 15 мин); коллектор `WindowMonitor` (фокусное окно каждые 2 с - ровно одно событие на смену пары pid+title; старт/выход процессов диффом снапшотов `CreateToolhelp32Snapshot`, без `Process.GetProcesses()` в цикле; exe-путь best-effort через `QueryFullProcessImageNameW`); трей на `NotifyIcon` без сторонних пакетов (крестик прячет окно, выход - только из меню трея, сессия закрывается с причиной `user`). Проверено живым прогоном: события и приложения пишутся в БД, собственное окно отбрасывается конвейером. Известное ограничение: приложение с неизвестным exe-путём создаёт отдельную строку справочника - коалесценция отложена.
 

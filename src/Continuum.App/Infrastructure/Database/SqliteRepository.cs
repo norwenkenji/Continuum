@@ -1,27 +1,31 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Continuum.Core.Abstractions;
 using Continuum.Core.Domain;
 using Continuum.Core.Interfaces;
-using Microsoft.Data.Sqlite;
+using Continuum.Infrastructure.Database.Ef;
+using Microsoft.EntityFrameworkCore;
 
 namespace Continuum.Infrastructure.Database;
 
 /// <summary>
-/// Хранилище поверх SQLite (Microsoft.Data.Sqlite, без EF).
-/// Времена - unix-секунды UTC; enum - snake_case через <see cref="EnumCodec"/>.
-/// Снапшот пишется со всеми дочерними наборами в одной транзакции.
+/// Хранилище Continuum поверх SQLite через Entity Framework Core (DbContext,
+/// LINQ, миграции EF Core). Ручного SQL нет: выборки - LINQ, запись -
+/// SaveChanges (снапшот и план со всеми дочерними наборами пишутся одной
+/// транзакцией EF). Времена - unix-секунды UTC; enum - snake_case через
+/// <see cref="EnumCodec"/> (конвертеры в <see cref="ContinuumDbContext"/>).
 /// </summary>
 public sealed class SqliteRepository : IRepository
 {
-    private readonly SqliteConnectionFactory _factory;
+    private readonly SqliteConnectionFactory _connections;
     private readonly IClock _clock;
 
-    public SqliteRepository(SqliteConnectionFactory factory, IClock clock)
+    public SqliteRepository(SqliteConnectionFactory connections, IClock clock)
     {
-        _factory = factory;
+        _connections = connections;
         _clock = clock;
     }
 
@@ -29,608 +33,489 @@ public sealed class SqliteRepository : IRepository
 
     public async Task<long> CreateSessionAsync(Session session, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO sessions (started_at, ended_at, status, end_reason, idle_threshold_s)
-            VALUES ($started_at, NULL, $status, NULL, $idle_threshold_s);
-            SELECT last_insert_rowid();
-            """;
-        command.Parameters.AddWithValue("$started_at", session.StartedAt.ToUnixTimeSeconds());
-        command.Parameters.AddWithValue("$status", EnumCodec.ToDb(SessionStatus.Running));
-        command.Parameters.AddWithValue("$idle_threshold_s", session.IdleThresholdSeconds);
-        return (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        await using var db = new ContinuumDbContext(_connections);
+        var row = new SessionRow
+        {
+            StartedAt = Unix(session.StartedAt),
+            EndedAt = null,
+            Status = SessionStatus.Running,
+            EndReason = null,
+            IdleThresholdSeconds = session.IdleThresholdSeconds,
+        };
+
+        db.Sessions.Add(row);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return row.Id;
     }
 
     public async Task EndSessionAsync(long sessionId, DateTimeOffset endedAt, SessionEndReason reason, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE sessions
-            SET ended_at = $ended_at, status = $status, end_reason = $end_reason
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$ended_at", endedAt.ToUnixTimeSeconds());
-        command.Parameters.AddWithValue("$status", EnumCodec.ToDb(SessionStatus.Ended));
-        command.Parameters.AddWithValue("$end_reason", EnumCodec.ToDb(reason));
-        command.Parameters.AddWithValue("$id", sessionId);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Sessions.FirstOrDefaultAsync(x => x.Id == sessionId, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            return;
+        }
+
+        row.EndedAt = Unix(endedAt);
+        row.Status = SessionStatus.Ended;
+        row.EndReason = reason;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Session>> GetOpenSessionsAsync(CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, started_at, ended_at, status, end_reason, idle_threshold_s
-            FROM sessions
-            WHERE ended_at IS NULL
-            ORDER BY started_at, id;
-            """;
-        return await ReadSessionsAsync(command, ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        var rows = await db.Sessions
+            .AsNoTracking()
+            .Where(x => x.EndedAt == null)
+            .OrderBy(x => x.StartedAt)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        return rows.Select(MapSession).ToList();
     }
 
     public async Task<Session?> GetLastSessionAsync(CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, started_at, ended_at, status, end_reason, idle_threshold_s
-            FROM sessions
-            ORDER BY id DESC
-            LIMIT 1;
-            """;
-        var sessions = await ReadSessionsAsync(command, ct).ConfigureAwait(false);
-        return sessions.Count > 0 ? sessions[0] : null;
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Sessions
+            .AsNoTracking()
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+        return row is null ? null : MapSession(row);
     }
 
     // ---------------- События ----------------
 
     public async Task AppendEventAsync(Event ev, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO events (session_id, ts, kind, application_id, project_id, title, path, url, meta_json)
-            VALUES ($session_id, $ts, $kind, $application_id, $project_id, $title, $path, $url, $meta_json);
-            """;
-        command.Parameters.AddWithValue("$session_id", ev.SessionId);
-        command.Parameters.AddWithValue("$ts", ev.Ts.ToUnixTimeSeconds());
-        command.Parameters.AddWithValue("$kind", EnumCodec.ToDb(ev.Kind));
-        command.Parameters.AddWithValue("$application_id", (object?)ev.ApplicationId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$project_id", (object?)ev.ProjectId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$title", (object?)ev.Title ?? DBNull.Value);
-        command.Parameters.AddWithValue("$path", (object?)ev.Path ?? DBNull.Value);
-        command.Parameters.AddWithValue("$url", (object?)ev.Url ?? DBNull.Value);
-        command.Parameters.AddWithValue("$meta_json", (object?)ev.MetaJson ?? DBNull.Value);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        db.Events.Add(new EventRow
+        {
+            SessionId = ev.SessionId,
+            Ts = Unix(ev.Ts),
+            Kind = ev.Kind,
+            ApplicationId = ev.ApplicationId,
+            ProjectId = ev.ProjectId,
+            Title = ev.Title,
+            Path = ev.Path,
+            Url = ev.Url,
+            MetaJson = ev.MetaJson,
+        });
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<Event>> GetSessionEventsAsync(long sessionId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, session_id, ts, kind, application_id, project_id, title, path, url, meta_json
-            FROM events
-            WHERE session_id = $session_id
-            ORDER BY ts, id;
-            """;
-        command.Parameters.AddWithValue("$session_id", sessionId);
+        await using var db = new ContinuumDbContext(_connections);
+        var rows = await db.Events
+            .AsNoTracking()
+            .Where(x => x.SessionId == sessionId)
+            .OrderBy(x => x.Ts)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
-        var result = new List<Event>();
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            result.Add(new Event(
-                Id: reader.GetInt64(0),
-                SessionId: reader.GetInt64(1),
-                Ts: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
-                Kind: EnumCodec.FromDb<EventKind>(reader.GetString(3)),
-                ApplicationId: reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                ProjectId: reader.IsDBNull(5) ? null : reader.GetInt64(5),
-                Title: reader.IsDBNull(6) ? null : reader.GetString(6),
-                Path: reader.IsDBNull(7) ? null : reader.GetString(7),
-                Url: reader.IsDBNull(8) ? null : reader.GetString(8),
-                MetaJson: reader.IsDBNull(9) ? null : reader.GetString(9)));
-        }
-
-        return result;
+        return rows.Select(r => new Event(
+            Id: r.Id,
+            SessionId: r.SessionId,
+            Ts: Ts(r.Ts),
+            Kind: r.Kind,
+            ApplicationId: r.ApplicationId,
+            ProjectId: r.ProjectId,
+            Title: r.Title,
+            Path: r.Path,
+            Url: r.Url,
+            MetaJson: r.MetaJson)).ToList();
     }
 
     public async Task<DateTimeOffset?> GetLastEventTsAsync(long sessionId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT MAX(ts) FROM events WHERE session_id = $session_id;";
-        command.Parameters.AddWithValue("$session_id", sessionId);
-
-        var raw = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return raw is long ts ? DateTimeOffset.FromUnixTimeSeconds(ts) : null;
+        await using var db = new ContinuumDbContext(_connections);
+        var last = await db.Events
+            .AsNoTracking()
+            .Where(x => x.SessionId == sessionId)
+            .Select(x => (long?)x.Ts)
+            .MaxAsync(ct)
+            .ConfigureAwait(false);
+        return last is null ? null : Ts(last.Value);
     }
 
     // ---------------- Активность файлов ----------------
 
     public async Task AppendFileActivityAsync(FileActivity activity, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO file_activity (session_id, ts, project_id, path, change_kind, source)
-            VALUES ($session_id, $ts, $project_id, $path, $change_kind, $source);
-            """;
-        command.Parameters.AddWithValue("$session_id", activity.SessionId);
-        command.Parameters.AddWithValue("$ts", activity.Ts.ToUnixTimeSeconds());
-        command.Parameters.AddWithValue("$project_id", (object?)activity.ProjectId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$path", activity.Path);
-        command.Parameters.AddWithValue("$change_kind", EnumCodec.ToDb(activity.ChangeKind));
-        command.Parameters.AddWithValue("$source", EnumCodec.ToDb(activity.Source));
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        db.FileActivity.Add(new FileActivityRow
+        {
+            SessionId = activity.SessionId,
+            Ts = Unix(activity.Ts),
+            ProjectId = activity.ProjectId,
+            Path = activity.Path,
+            ChangeKind = activity.ChangeKind,
+            Source = activity.Source,
+        });
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<FileActivity>> GetSessionFileActivityAsync(long sessionId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, session_id, ts, project_id, path, change_kind, source
-            FROM file_activity
-            WHERE session_id = $session_id
-            ORDER BY ts, id;
-            """;
-        command.Parameters.AddWithValue("$session_id", sessionId);
+        await using var db = new ContinuumDbContext(_connections);
+        var rows = await db.FileActivity
+            .AsNoTracking()
+            .Where(x => x.SessionId == sessionId)
+            .OrderBy(x => x.Ts)
+            .ThenBy(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
-        var result = new List<FileActivity>();
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            result.Add(new FileActivity(
-                Id: reader.GetInt64(0),
-                SessionId: reader.GetInt64(1),
-                Ts: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
-                ProjectId: reader.IsDBNull(3) ? null : reader.GetInt64(3),
-                Path: reader.GetString(4),
-                ChangeKind: EnumCodec.FromDb<FileChangeKind>(reader.GetString(5)),
-                Source: EnumCodec.FromDb<FileActivitySource>(reader.GetString(6))));
-        }
-
-        return result;
+        return rows.Select(r => new FileActivity(
+            Id: r.Id,
+            SessionId: r.SessionId,
+            Ts: Ts(r.Ts),
+            ProjectId: r.ProjectId,
+            Path: r.Path,
+            ChangeKind: r.ChangeKind,
+            Source: r.Source)).ToList();
     }
 
     // ---------------- Проекты и приложения ----------------
 
     public async Task<Project?> FindProjectByRootPathAsync(string rootPath, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, name, root_path, git_remote, first_seen, last_seen
-            FROM projects
-            WHERE root_path = $root_path;
-            """;
-        command.Parameters.AddWithValue("$root_path", rootPath);
-
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return MapProject(reader);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Projects
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.RootPath == rootPath, ct)
+            .ConfigureAwait(false);
+        return row is null ? null : MapProject(row);
     }
 
     public async Task<Project?> GetProjectAsync(long projectId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, name, root_path, git_remote, first_seen, last_seen
-            FROM projects
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", projectId);
-
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        return MapProject(reader);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Projects
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == projectId, ct)
+            .ConfigureAwait(false);
+        return row is null ? null : MapProject(row);
     }
 
     public async Task<long> UpsertProjectAsync(Project project, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO projects (name, root_path, git_remote, first_seen, last_seen)
-            VALUES ($name, $root_path, $git_remote, $seen, $seen)
-            ON CONFLICT(root_path) DO UPDATE SET
-                name = excluded.name,
-                git_remote = COALESCE(excluded.git_remote, projects.git_remote),
-                last_seen = excluded.last_seen
-            RETURNING id;
-            """;
-        command.Parameters.AddWithValue("$name", project.Name);
-        command.Parameters.AddWithValue("$root_path", project.RootPath);
-        command.Parameters.AddWithValue("$git_remote", (object?)project.GitRemote ?? DBNull.Value);
-        command.Parameters.AddWithValue("$seen", _clock.UtcNow.ToUnixTimeSeconds());
-        return (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        await using var db = new ContinuumDbContext(_connections);
+        var seen = Unix(_clock.UtcNow);
+        var row = await db.Projects
+            .FirstOrDefaultAsync(x => x.RootPath == project.RootPath, ct)
+            .ConfigureAwait(false);
+
+        if (row is null)
+        {
+            row = new ProjectRow
+            {
+                Name = project.Name,
+                RootPath = project.RootPath,
+                GitRemote = project.GitRemote,
+                FirstSeen = seen,
+                LastSeen = seen,
+            };
+            db.Projects.Add(row);
+        }
+        else
+        {
+            // Совпадает с прежним ON CONFLICT: name и last_seen обновляются,
+            // git_remote - только если пришло непустое значение
+            row.Name = project.Name;
+            row.GitRemote = project.GitRemote ?? row.GitRemote;
+            row.LastSeen = seen;
+        }
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return row.Id;
     }
 
     public async Task<long> UpsertApplicationAsync(ApplicationInfo application, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        // exe_path в БД - NOT NULL DEFAULT '': уникальность (name, exe_path)
-        // работает, потому что SQLite считает NULL различными
-        command.CommandText = """
-            INSERT INTO applications (name, exe_path, adapter_key, first_seen, last_seen)
-            VALUES ($name, $exe_path, $adapter_key, $seen, $seen)
-            ON CONFLICT(name, exe_path) DO UPDATE SET
-                adapter_key = COALESCE(excluded.adapter_key, applications.adapter_key),
-                last_seen = excluded.last_seen
-            RETURNING id;
-            """;
-        command.Parameters.AddWithValue("$name", application.Name);
-        command.Parameters.AddWithValue("$exe_path", application.ExePath ?? string.Empty);
-        command.Parameters.AddWithValue("$adapter_key", (object?)application.AdapterKey ?? DBNull.Value);
-        command.Parameters.AddWithValue("$seen", _clock.UtcNow.ToUnixTimeSeconds());
-        return (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        await using var db = new ContinuumDbContext(_connections);
+        var seen = Unix(_clock.UtcNow);
+        var exePath = application.ExePath ?? string.Empty;
+        var row = await db.Applications
+            .FirstOrDefaultAsync(x => x.Name == application.Name && x.ExePath == exePath, ct)
+            .ConfigureAwait(false);
+
+        if (row is null)
+        {
+            row = new ApplicationRow
+            {
+                Name = application.Name,
+                ExePath = exePath,
+                AdapterKey = application.AdapterKey,
+                FirstSeen = seen,
+                LastSeen = seen,
+            };
+            db.Applications.Add(row);
+        }
+        else
+        {
+            row.AdapterKey = application.AdapterKey ?? row.AdapterKey;
+            row.LastSeen = seen;
+        }
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return row.Id;
     }
 
     // ---------------- Снапшоты ----------------
 
     public async Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        await using var db = new ContinuumDbContext(_connections);
 
-        long snapshotId;
-        await using (var command = connection.CreateCommand())
+        var row = new SnapshotRow
         {
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO snapshots (session_id, ts, reason, schema_version, summary_json)
-                VALUES ($session_id, $ts, $reason, $schema_version, $summary_json);
-                SELECT last_insert_rowid();
-                """;
-            command.Parameters.AddWithValue("$session_id", snapshot.SessionId);
-            command.Parameters.AddWithValue("$ts", snapshot.Ts.ToUnixTimeSeconds());
-            command.Parameters.AddWithValue("$reason", EnumCodec.ToDb(snapshot.Reason));
-            command.Parameters.AddWithValue("$schema_version", snapshot.SchemaVersion);
-            command.Parameters.AddWithValue("$summary_json", snapshot.SummaryJson);
-            snapshotId = (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
-        }
+            SessionId = snapshot.SessionId,
+            Ts = Unix(snapshot.Ts),
+            Reason = snapshot.Reason,
+            SchemaVersion = snapshot.SchemaVersion,
+            SummaryJson = snapshot.SummaryJson,
+        };
 
         foreach (var git in snapshot.GitStates)
         {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO git_state (snapshot_id, project_id, available, branch, head_commit,
-                                       head_subject, head_ts, dirty_count, dirty_files_json, untracked_count)
-                VALUES ($snapshot_id, $project_id, $available, $branch, $head_commit,
-                        $head_subject, $head_ts, $dirty_count, $dirty_files_json, $untracked_count);
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
-            command.Parameters.AddWithValue("$project_id", git.ProjectId);
-            command.Parameters.AddWithValue("$available", git.Available ? 1 : 0);
-            command.Parameters.AddWithValue("$branch", (object?)git.Branch ?? DBNull.Value);
-            command.Parameters.AddWithValue("$head_commit", (object?)git.HeadCommit ?? DBNull.Value);
-            command.Parameters.AddWithValue("$head_subject", (object?)git.HeadSubject ?? DBNull.Value);
-            command.Parameters.AddWithValue("$head_ts", (object?)git.HeadTs?.ToUnixTimeSeconds() ?? DBNull.Value);
-            command.Parameters.AddWithValue("$dirty_count", git.DirtyCount);
-            command.Parameters.AddWithValue("$dirty_files_json", (object?)git.DirtyFilesJson ?? DBNull.Value);
-            command.Parameters.AddWithValue("$untracked_count", git.UntrackedCount);
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            row.GitStates.Add(new GitStateRow
+            {
+                ProjectId = git.ProjectId,
+                Available = git.Available,
+                Branch = git.Branch,
+                HeadCommit = git.HeadCommit,
+                HeadSubject = git.HeadSubject,
+                HeadTs = git.HeadTs is { } headTs ? Unix(headTs) : null,
+                DirtyCount = git.DirtyCount,
+                DirtyFilesJson = git.DirtyFilesJson,
+                UntrackedCount = git.UntrackedCount,
+            });
         }
 
         foreach (var terminal in snapshot.Terminals)
         {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO terminals (snapshot_id, available, host, shell, cwd, source)
-                VALUES ($snapshot_id, $available, $host, $shell, $cwd, $source);
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
-            command.Parameters.AddWithValue("$available", terminal.Available ? 1 : 0);
-            command.Parameters.AddWithValue("$host", terminal.Host);
-            command.Parameters.AddWithValue("$shell", (object?)terminal.Shell ?? DBNull.Value);
-            command.Parameters.AddWithValue("$cwd", (object?)terminal.Cwd ?? DBNull.Value);
-            command.Parameters.AddWithValue("$source", EnumCodec.ToDb(terminal.Source));
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            row.Terminals.Add(new TerminalRow
+            {
+                Available = terminal.Available,
+                Host = terminal.Host,
+                Shell = terminal.Shell,
+                Cwd = terminal.Cwd,
+                Source = terminal.Source,
+            });
         }
 
         foreach (var file in snapshot.OpenFiles)
         {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO open_files (snapshot_id, path, project_id, application_id, line, last_modified, source)
-                VALUES ($snapshot_id, $path, $project_id, $application_id, $line, $last_modified, $source);
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
-            command.Parameters.AddWithValue("$path", file.Path);
-            command.Parameters.AddWithValue("$project_id", (object?)file.ProjectId ?? DBNull.Value);
-            command.Parameters.AddWithValue("$application_id", (object?)file.ApplicationId ?? DBNull.Value);
-            command.Parameters.AddWithValue("$line", (object?)file.Line ?? DBNull.Value);
-            command.Parameters.AddWithValue("$last_modified", (object?)file.LastModified?.ToUnixTimeSeconds() ?? DBNull.Value);
-            command.Parameters.AddWithValue("$source", file.Source);
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            row.OpenFiles.Add(new OpenFileRow
+            {
+                Path = file.Path,
+                ProjectId = file.ProjectId,
+                ApplicationId = file.ApplicationId,
+                Line = file.Line,
+                LastModified = file.LastModified is { } lastModified ? Unix(lastModified) : null,
+                Source = file.Source,
+            });
         }
 
         foreach (var tab in snapshot.BrowserTabs)
         {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO browser_tabs (snapshot_id, application_id, url, title, url_available, is_active, source)
-                VALUES ($snapshot_id, $application_id, $url, $title, $url_available, $is_active, $source);
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
-            command.Parameters.AddWithValue("$application_id", tab.ApplicationId);
-            command.Parameters.AddWithValue("$url", (object?)tab.Url ?? DBNull.Value);
-            command.Parameters.AddWithValue("$title", (object?)tab.Title ?? DBNull.Value);
-            command.Parameters.AddWithValue("$url_available", tab.UrlAvailable ? 1 : 0);
-            command.Parameters.AddWithValue("$is_active", tab.IsActive ? 1 : 0);
-            command.Parameters.AddWithValue("$source", EnumCodec.ToDb(tab.Source));
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            row.BrowserTabs.Add(new BrowserTabRow
+            {
+                ApplicationId = tab.ApplicationId,
+                Url = tab.Url,
+                Title = tab.Title,
+                UrlAvailable = tab.UrlAvailable,
+                IsActive = tab.IsActive,
+                Source = tab.Source,
+            });
         }
 
-        transaction.Commit();
-        return snapshotId;
+        // Один SaveChanges - одна транзакция: снапшот и все дочерние наборы
+        // либо записаны целиком, либо не записаны вовсе
+        db.Snapshots.Add(row);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return row.Id;
     }
 
     public async Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, session_id, ts, reason, schema_version, summary_json
-            FROM snapshots
-            WHERE session_id = $session_id
-            ORDER BY ts DESC, id DESC
-            LIMIT 1;
-            """;
-        command.Parameters.AddWithValue("$session_id", sessionId);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Snapshots
+            .AsNoTracking()
+            .Where(x => x.SessionId == sessionId)
+            .OrderByDescending(x => x.Ts)
+            .ThenByDescending(x => x.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
 
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            return null;
-        }
-
-        // Дочерние наборы не грузим: план строится из событий сессии и справочников,
-        // снапшот нужен как якорь (id/время) - см. RestoreEngine
-        return new Snapshot(
-            Id: reader.GetInt64(0),
-            SessionId: reader.GetInt64(1),
-            Ts: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
-            Reason: EnumCodec.FromDb<SnapshotReason>(reader.GetString(3)),
-            SchemaVersion: reader.GetInt32(4),
-            SummaryJson: reader.GetString(5));
+        // Дочерние наборы не грузим: снапшот нужен как якорь (id/время) - см. RestoreService
+        return row is null
+            ? null
+            : new Snapshot(row.Id, row.SessionId, Ts(row.Ts), row.Reason, row.SchemaVersion, row.SummaryJson);
     }
 
     // ---------------- Планы восстановления ----------------
 
     public async Task<long> CreateRestorePlanAsync(RestorePlan plan, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        await using var db = new ContinuumDbContext(_connections);
 
-        long planId;
-        await using (var command = connection.CreateCommand())
+        var row = new RestorePlanRow
         {
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO restore_plans (snapshot_id, created_at, dry_run, status, started_at, finished_at)
-                VALUES ($snapshot_id, $created_at, $dry_run, $status, $started_at, $finished_at);
-                SELECT last_insert_rowid();
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", plan.SnapshotId);
-            command.Parameters.AddWithValue("$created_at", plan.CreatedAt.ToUnixTimeSeconds());
-            command.Parameters.AddWithValue("$dry_run", plan.DryRun ? 1 : 0);
-            command.Parameters.AddWithValue("$status", EnumCodec.ToDb(plan.Status));
-            command.Parameters.AddWithValue("$started_at", (object?)plan.StartedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
-            command.Parameters.AddWithValue("$finished_at", (object?)plan.FinishedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
-            planId = (long)(await command.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
-        }
+            SnapshotId = plan.SnapshotId,
+            CreatedAt = Unix(plan.CreatedAt),
+            DryRun = plan.DryRun,
+            Status = plan.Status,
+            StartedAt = plan.StartedAt is { } startedAt ? Unix(startedAt) : null,
+            FinishedAt = plan.FinishedAt is { } finishedAt ? Unix(finishedAt) : null,
+        };
 
         foreach (var step in plan.Steps)
         {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO restore_steps (plan_id, seq, strategy, target, args_json, result, error, duration_ms)
-                VALUES ($plan_id, $seq, $strategy, $target, $args_json, $result, $error, $duration_ms);
-                """;
-            command.Parameters.AddWithValue("$plan_id", planId);
-            command.Parameters.AddWithValue("$seq", step.Seq);
-            command.Parameters.AddWithValue("$strategy", EnumCodec.ToDb(step.Strategy));
-            command.Parameters.AddWithValue("$target", (object?)step.Target ?? DBNull.Value);
-            command.Parameters.AddWithValue("$args_json", (object?)step.ArgsJson ?? DBNull.Value);
-            command.Parameters.AddWithValue("$result", (object?)step.Result is null ? DBNull.Value : EnumCodec.ToDb(step.Result!.Value));
-            command.Parameters.AddWithValue("$error", (object?)step.Error ?? DBNull.Value);
-            command.Parameters.AddWithValue("$duration_ms", (object?)step.DurationMs ?? DBNull.Value);
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            row.Steps.Add(new RestoreStepRow
+            {
+                Seq = step.Seq,
+                Strategy = step.Strategy,
+                Target = step.Target,
+                ArgsJson = step.ArgsJson,
+                Result = step.Result,
+                Error = step.Error,
+                DurationMs = step.DurationMs,
+            });
         }
 
-        transaction.Commit();
-        return planId;
+        db.RestorePlans.Add(row);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return row.Id;
     }
 
     public async Task SetRestorePlanStatusAsync(long planId, RestorePlanStatus status, DateTimeOffset? startedAt, DateTimeOffset? finishedAt, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE restore_plans
-            SET status = $status, started_at = $started_at, finished_at = $finished_at
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", planId);
-        command.Parameters.AddWithValue("$status", EnumCodec.ToDb(status));
-        command.Parameters.AddWithValue("$started_at", (object?)startedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
-        command.Parameters.AddWithValue("$finished_at", (object?)finishedAt?.ToUnixTimeSeconds() ?? DBNull.Value);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.RestorePlans.FirstOrDefaultAsync(x => x.Id == planId, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            return;
+        }
+
+        row.Status = status;
+        row.StartedAt = startedAt is { } started ? Unix(started) : null;
+        row.FinishedAt = finishedAt is { } finished ? Unix(finished) : null;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     public async Task SetRestoreStepResultAsync(long stepId, RestoreStepResult result, string? error, long? durationMs, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE restore_steps
-            SET result = $result, error = $error, duration_ms = $duration_ms
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", stepId);
-        command.Parameters.AddWithValue("$result", EnumCodec.ToDb(result));
-        command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
-        command.Parameters.AddWithValue("$duration_ms", (object?)durationMs ?? DBNull.Value);
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.RestoreSteps.FirstOrDefaultAsync(x => x.Id == stepId, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            return;
+        }
+
+        row.Result = result;
+        row.Error = error;
+        row.DurationMs = durationMs;
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.RestorePlans
+            .AsNoTracking()
+            .Include(x => x.Steps)
+            .Where(x => x.SnapshotId == snapshotId)
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
 
-        long planId;
-        bool dryRun;
-        await using (var command = connection.CreateCommand())
+        if (row is null)
         {
-            command.CommandText = """
-                SELECT id, dry_run
-                FROM restore_plans
-                WHERE snapshot_id = $snapshot_id
-                ORDER BY id DESC
-                LIMIT 1;
-                """;
-            command.Parameters.AddWithValue("$snapshot_id", snapshotId);
-
-            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                return null;
-            }
-
-            planId = reader.GetInt64(0);
-            dryRun = reader.GetInt64(1) != 0;
+            return null;
         }
 
-        // Шаги - по plan_id без сортировки в SQL: seq нужен как порядок
-        var steps = new List<RestoreStep>();
-        await using (var command = connection.CreateCommand())
+        var steps = row.Steps
+            .OrderBy(x => x.Seq)
+            .Select(s => new RestoreStep(
+                Id: s.Id,
+                PlanId: s.PlanId,
+                Seq: s.Seq,
+                Strategy: s.Strategy,
+                Target: s.Target,
+                ArgsJson: s.ArgsJson,
+                Result: s.Result,
+                Error: s.Error,
+                DurationMs: s.DurationMs))
+            .ToList();
+
+        return new RestorePlan(
+            Id: row.Id,
+            SnapshotId: row.SnapshotId,
+            CreatedAt: Ts(row.CreatedAt),
+            DryRun: row.DryRun,
+            Status: row.Status,
+            StartedAt: row.StartedAt is { } started ? Ts(started) : null,
+            FinishedAt: row.FinishedAt is { } finished ? Ts(finished) : null)
         {
-            command.CommandText = """
-                SELECT id, seq, strategy, target, args_json, result, error, duration_ms
-                FROM restore_steps
-                WHERE plan_id = $plan_id
-                ORDER BY seq;
-                """;
-            command.Parameters.AddWithValue("$plan_id", planId);
-
-            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                steps.Add(new RestoreStep(
-                    Id: reader.GetInt64(0),
-                    PlanId: planId,
-                    Seq: reader.GetInt32(1),
-                    Strategy: EnumCodec.FromDb<RestoreStrategyKind>(reader.GetString(2)),
-                    Target: reader.IsDBNull(3) ? null : reader.GetString(3),
-                    ArgsJson: reader.IsDBNull(4) ? null : reader.GetString(4),
-                    Result: reader.IsDBNull(5) ? null : EnumCodec.FromDb<RestoreStepResult>(reader.GetString(5)),
-                    Error: reader.IsDBNull(6) ? null : reader.GetString(6),
-                    DurationMs: reader.IsDBNull(7) ? null : reader.GetInt64(7)));
-            }
-        }
-
-        await using (var command = connection.CreateCommand())
-        {
-            command.CommandText = """
-                SELECT created_at, status, started_at, finished_at
-                FROM restore_plans
-                WHERE id = $id;
-                """;
-            command.Parameters.AddWithValue("$id", planId);
-
-            await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                return null;
-            }
-
-            return new RestorePlan(
-                Id: planId,
-                SnapshotId: snapshotId,
-                CreatedAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)),
-                DryRun: dryRun,
-                Status: EnumCodec.FromDb<RestorePlanStatus>(reader.GetString(1)),
-                StartedAt: reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
-                FinishedAt: reader.IsDBNull(3) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)))
-            {
-                Steps = steps,
-            };
-        }
+            Steps = steps,
+        };
     }
 
     // ---------------- Настройки ----------------
 
     public async Task<string?> GetSettingAsync(string key, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM settings WHERE key = $key;";
-        command.Parameters.AddWithValue("$key", key);
-        var value = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return value as string;
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Settings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Key == key, ct)
+            .ConfigureAwait(false);
+        return row?.Value;
     }
 
     public async Task SetSettingAsync(string key, string value, CancellationToken ct = default)
     {
-        await using var connection = _factory.OpenConnection();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO settings (key, value, updated_at)
-            VALUES ($key, $value, $updated_at)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
-            """;
-        command.Parameters.AddWithValue("$key", key);
-        command.Parameters.AddWithValue("$value", value);
-        command.Parameters.AddWithValue("$updated_at", _clock.UtcNow.ToUnixTimeSeconds());
-        await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Settings.FirstOrDefaultAsync(x => x.Key == key, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            db.Settings.Add(new SettingRow { Key = key, Value = value, UpdatedAt = Unix(_clock.UtcNow) });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = Unix(_clock.UtcNow);
+        }
+
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     // ---------------- Маппинг ----------------
 
-    private static async Task<IReadOnlyList<Session>> ReadSessionsAsync(SqliteCommand command, CancellationToken ct)
-    {
-        var result = new List<Session>();
-        await using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
-        {
-            result.Add(new Session(
-                Id: reader.GetInt64(0),
-                StartedAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)),
-                EndedAt: reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
-                Status: EnumCodec.FromDb<SessionStatus>(reader.GetString(3)),
-                EndReason: reader.IsDBNull(4) ? null : EnumCodec.FromDb<SessionEndReason>(reader.GetString(4)),
-                IdleThresholdSeconds: reader.GetInt32(5)));
-        }
+    private static DateTimeOffset Ts(long seconds) => DateTimeOffset.FromUnixTimeSeconds(seconds);
 
-        return result;
-    }
+    private static long Unix(DateTimeOffset value) => value.ToUnixTimeSeconds();
 
-    private static Project MapProject(SqliteDataReader reader) => new(
-        Id: reader.GetInt64(0),
-        Name: reader.GetString(1),
-        RootPath: reader.GetString(2),
-        GitRemote: reader.IsDBNull(3) ? null : reader.GetString(3),
-        FirstSeen: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(4)),
-        LastSeen: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5)));
+    private static Session MapSession(SessionRow row) => new(
+        Id: row.Id,
+        StartedAt: Ts(row.StartedAt),
+        EndedAt: row.EndedAt is { } endedAt ? Ts(endedAt) : null,
+        Status: row.Status,
+        EndReason: row.EndReason,
+        IdleThresholdSeconds: row.IdleThresholdSeconds);
+
+    private static Project MapProject(ProjectRow row) => new(
+        Id: row.Id,
+        Name: row.Name,
+        RootPath: row.RootPath,
+        GitRemote: row.GitRemote,
+        FirstSeen: row.FirstSeen is { } firstSeen ? Ts(firstSeen) : DateTimeOffset.UnixEpoch,
+        LastSeen: row.LastSeen is { } lastSeen ? Ts(lastSeen) : DateTimeOffset.UnixEpoch);
 }

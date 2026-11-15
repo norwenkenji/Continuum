@@ -3,7 +3,7 @@ namespace Continuum.Core.Domain;
 /// <summary>
 /// Точка состояния контекста (snapshots). Реляционные таблицы хранят то,
 /// по чему есть запросы; остальное - в SummaryJson. SchemaVersion версионирует
-/// формат SummaryJson, а не схему БД (она версионируется через PRAGMA user_version).
+/// формат SummaryJson, а не схему БД (она версионируется миграциями EF Core).
 /// </summary>
 public sealed record Snapshot(
     long Id,
