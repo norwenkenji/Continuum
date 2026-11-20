@@ -48,9 +48,20 @@ public static class CompositionRoot
         services.AddSingleton<IRepository, SqliteRepository>();
 
         // Privacy-конвейер (docs/specs/privacy-pipeline.md)
-        services.AddSingleton<IExclusionSet, ExclusionSet>();
+        services.AddSingleton<ExclusionSet>();
+        services.AddSingleton<IExclusionSet>(sp => sp.GetRequiredService<ExclusionSet>());
         services.AddSingleton<ISanitizer, SecretSanitizer>();
         services.AddSingleton<IPrivacyFilter, PrivacyFilter>();
+
+        // Настройки (шаг 9): хранятся в settings, применяются на лету (ФТ-2.3)
+        services.AddSingleton<Settings.SettingsService>();
+        services.AddSingleton<IIdleThresholdProvider>(sp => sp.GetRequiredService<Settings.SettingsService>());
+
+        // Обслуживание данных: срок хранения и полное удаление (ФТ-7.2)
+        services.AddSingleton<Maintenance.RetentionService>();
+        services.AddSingleton<Maintenance.DataWipeService>();
+        services.AddSingleton<Maintenance.MaintenanceCoordinator>();
+        services.AddSingleton<Maintenance.IDataWipeCoordinator>(sp => sp.GetRequiredService<Maintenance.MaintenanceCoordinator>());
 
         // Сессия и пайплайн наблюдений
         services.AddSingleton<SessionRuntime>();
@@ -82,7 +93,7 @@ public static class CompositionRoot
 
         // Снапшоты и полные границы сессии (шаг 4); с шага 7 снапшот включает
         // открытые файлы (IOpenFilesProvider - адаптер VS Code)
-        services.AddSingleton<ISnapshotter>(sp => new Snapshots.Snapshotter(
+        services.AddSingleton<Snapshots.Snapshotter>(sp => new Snapshots.Snapshotter(
             sp.GetRequiredService<IRepository>(),
             sp.GetRequiredService<ISessionContext>(),
             sp.GetRequiredService<IProjectRegistry>(),
@@ -92,8 +103,16 @@ public static class CompositionRoot
             sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>(),
             openFiles: sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>(),
             projectResolver: sp.GetRequiredService<IProjectResolver>()));
+        services.AddSingleton<ISnapshotter>(sp => sp.GetRequiredService<Snapshots.Snapshotter>());
         services.AddSingleton<IIdleTimeSource, IdleTimeSource>();
-        services.AddSingleton<SessionSupervisor>();
+        services.AddSingleton<SessionSupervisor>(sp => new SessionSupervisor(
+            sp.GetRequiredService<SessionRuntime>(),
+            sp.GetRequiredService<IRepository>(),
+            sp.GetRequiredService<IIdleTimeSource>(),
+            sp.GetRequiredService<ISnapshotter>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<ILogger<SessionSupervisor>>(),
+            idleThresholdProvider: sp.GetRequiredService<IIdleThresholdProvider>()));
         services.AddSingleton<Stopped.StoppedEngine>();
 
         // Адаптер VS Code (шаг 7, data-sources §7): события сохранений из
@@ -118,6 +137,7 @@ public static class CompositionRoot
         services.AddSingleton<IApplicationResolver>(sp => sp.GetRequiredService<Restore.ApplicationPathResolver>());
         services.AddSingleton<IProcessLauncher, Restore.ProcessLauncher>();
         services.AddSingleton<Restore.RestoreService>();
+        services.AddSingleton<Restore.RestorePlanComposer>();
         services.AddTransient<Presentation.RestorePlanViewModel>();
 
         // Трей
@@ -125,6 +145,10 @@ public static class CompositionRoot
 
         // Окна и модели представления (MVVM, шаги 6 и 8)
         services.AddSingleton<Presentation.TimelineViewModel>();
+        services.AddSingleton<Presentation.IUserConfirmation, Composition.WpfUserConfirmation>();
+        services.AddSingleton<Presentation.SettingsViewModel>();
+        services.AddTransient<SettingsWindow>();
+        services.AddSingleton<Func<SettingsWindow>>(sp => () => sp.GetRequiredService<SettingsWindow>());
         services.AddSingleton<Presentation.MainViewModel>();
         services.AddTransient<MainWindow>();
 

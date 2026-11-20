@@ -68,6 +68,10 @@ namespace Continuum
                     period: Timeout.Infinite);
             }
 
+            // Настройки (шаг 9): исключения и порог простоя применяются до старта
+            // коллекторов - конвейер сразу работает с настоящими исключениями
+            services.GetRequiredService<Settings.SettingsService>().LoadAsync().GetAwaiter().GetResult();
+
             if (_demoMode)
             {
                 // Демо-режим: засеянные данные, живые коллекторы и сессия
@@ -75,8 +79,14 @@ namespace Continuum
                 // повторный --demo не дублирует сессию (ключ demo_seeded).
                 services.GetRequiredService<Demo.DemoSeeder>().SeedAsync().GetAwaiter().GetResult();
 
+                services.GetRequiredService<Presentation.SettingsViewModel>().WipeEnabled = false;
                 _tray = services.GetRequiredService<TrayIcon>();
                 var demoWindow = services.GetRequiredService<MainWindow>();
+                _tray.SettingsRequested += (_, _) =>
+                {
+                    demoWindow.ShowFromTray();
+                    demoWindow.OpenSettings();
+                };
                 _tray.OpenRequested += (_, _) => demoWindow.ShowFromTray();
                 _tray.ExitRequested += (_, _) =>
                 {
@@ -107,6 +117,11 @@ namespace Continuum
                 source.Start();
             }
 
+            // Срок хранения (ФТ-7.2): проверка при старте и фоном раз в 6 часов
+            var retention = services.GetRequiredService<Maintenance.RetentionService>();
+            retention.RunOnceAsync().GetAwaiter().GetResult();
+            retention.Start();
+
             // Границы сессии и снапшоты по таймеру (шаг 4)
             var supervisor = services.GetRequiredService<SessionSupervisor>();
             supervisor.Start();
@@ -117,6 +132,11 @@ namespace Continuum
 
             MainWindow window = services.GetRequiredService<MainWindow>();
             _tray.OpenRequested += (_, _) => window.ShowFromTray();
+            _tray.SettingsRequested += (_, _) =>
+            {
+                window.ShowFromTray();
+                window.OpenSettings();
+            };
             _tray.ExitRequested += (_, _) =>
             {
                 window.AllowClose();

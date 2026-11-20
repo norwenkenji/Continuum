@@ -55,10 +55,25 @@ public interface IRepository
     /// <summary>Вставка или обновление по (Name, ExePath). Возвращает id.</summary>
     Task<long> UpsertApplicationAsync(ApplicationInfo application, CancellationToken ct = default);
 
+    /// <summary>Приложение по id; null - нет такого (хост-план восстановления).</summary>
+    Task<ApplicationInfo?> GetApplicationAsync(long applicationId, CancellationToken ct = default);
+
+    // Обслуживание данных (окно настроек, ФТ-7.2)
+
+    /// <summary>
+    /// Удаляет сессии, завершённые раньше порога, со всеми дочерними данными
+    /// (события, активность файлов, снапшоты с наборами, планы с шагами).
+    /// Висячие сессии (ended_at IS NULL) не трогаются. Возвращает число удалённых сессий.
+    /// </summary>
+    Task<int> DeleteSessionsOlderThanAsync(DateTimeOffset threshold, CancellationToken ct = default);
+
     // Снапшоты
 
     /// <summary>Сохраняет снапшот со всеми дочерними наборами в одной транзакции. Возвращает id снапшота.</summary>
     Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default);
+
+    /// <summary>Открытые файлы снапшота с позициями - для хостов плана восстановления.</summary>
+    Task<IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default);
 
     /// <summary>Последний снапшот сессии; null - сессия без снапшотов.</summary>
     Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default);

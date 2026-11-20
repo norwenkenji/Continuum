@@ -42,7 +42,8 @@
             <Button Content="Обновить" Command="{Binding RefreshCommand}" Padding="12,4" Margin="0,0,8,0"/>
             <Button Content="Построить план" Command="{Binding RestorePlan.BuildCommand}" Padding="12,4" Margin="0,0,8,0"/>
             <Button Content="Dry-run" Command="{Binding RestorePlan.DryRunCommand}" Padding="12,4" Margin="0,0,8,0"/>
-            <Button Content="Восстановить" Command="{Binding RestorePlan.ExecuteCommand}" Padding="12,4"/>
+            <Button Content="Восстановить" Command="{Binding RestorePlan.ExecuteCommand}" Padding="12,4" Margin="0,0,8,0"/>
+            <Button Content="Настройки" Command="{Binding OpenSettingsCommand}" Padding="12,4"/>
         </StackPanel>
 
         <!-- Хронология последней сессии -->

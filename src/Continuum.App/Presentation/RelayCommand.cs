@@ -30,6 +30,9 @@ public sealed class RelayCommand : ICommand
         remove => CommandManager.RequerySuggested -= value;
     }
 
+    /// <summary>Пересчитать доступность: кнопка обновится через RequerySuggested.</summary>
+    public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
+
     public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
 
     public void Execute(object? parameter) => _execute(parameter);

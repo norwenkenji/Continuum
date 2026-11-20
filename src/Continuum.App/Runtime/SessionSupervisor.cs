@@ -27,6 +27,7 @@ public sealed class SessionSupervisor : IDisposable
     private readonly IClock _clock;
     private readonly ILogger<SessionSupervisor> _logger;
     private readonly TimeSpan _idleThreshold;
+    private readonly IIdleThresholdProvider? _idleThresholdProvider;
     private readonly TimeSpan _pollInterval;
 
     private CancellationTokenSource? _cts;
@@ -40,7 +41,8 @@ public sealed class SessionSupervisor : IDisposable
         IClock clock,
         ILogger<SessionSupervisor> logger,
         TimeSpan? idleThreshold = null,
-        TimeSpan? pollInterval = null)
+        TimeSpan? pollInterval = null,
+        IIdleThresholdProvider? idleThresholdProvider = null)
     {
         _runtime = runtime;
         _repository = repository;
@@ -49,8 +51,12 @@ public sealed class SessionSupervisor : IDisposable
         _clock = clock;
         _logger = logger;
         _idleThreshold = idleThreshold ?? TimeSpan.FromSeconds(SessionRuntime.DefaultIdleThresholdSeconds);
+        _idleThresholdProvider = idleThresholdProvider;
         _pollInterval = pollInterval ?? DefaultPollInterval;
     }
+
+    /// <summary>Порог простоя: настройки (если заданы) важнее константы (ФТ-3.1).</summary>
+    private TimeSpan CurrentIdleThreshold() => _idleThresholdProvider?.Current ?? _idleThreshold;
 
     public void Start()
     {
@@ -122,7 +128,7 @@ public sealed class SessionSupervisor : IDisposable
         var idleFor = _idle.GetIdleTime();
         var sessionId = _runtime.CurrentSessionId;
 
-        if (sessionId != 0 && idleFor >= _idleThreshold)
+        if (sessionId != 0 && idleFor >= CurrentIdleThreshold())
         {
             _logger.LogInformation("Простой {Idle} >= порога {Threshold} - закрываю сессию по idle",
                 idleFor, _idleThreshold);

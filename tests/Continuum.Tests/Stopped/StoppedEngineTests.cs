@@ -289,5 +289,8 @@ public class StoppedEngineTests
         public Task<RestorePlan?> GetLastRestorePlanAsync(long snapshotId, CancellationToken ct = default) => _inner.GetLastRestorePlanAsync(snapshotId, ct);
         public Task<string?> GetSettingAsync(string key, CancellationToken ct = default) => _inner.GetSettingAsync(key, ct);
         public Task SetSettingAsync(string key, string value, CancellationToken ct = default) => _inner.SetSettingAsync(key, value, ct);
+        public Task<ApplicationInfo?> GetApplicationAsync(long applicationId, CancellationToken ct = default) => _inner.GetApplicationAsync(applicationId, ct);
+        public Task<int> DeleteSessionsOlderThanAsync(DateTimeOffset threshold, CancellationToken ct = default) => _inner.DeleteSessionsOlderThanAsync(threshold, ct);
+        public Task<System.Collections.Generic.IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default) => _inner.GetSnapshotOpenFilesAsync(snapshotId, ct);
     }
 }

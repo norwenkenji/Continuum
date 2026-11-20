@@ -16,6 +16,9 @@ public sealed class TrayIcon : IDisposable
     /// <summary>«Открыть» из меню или двойной клик по иконке.</summary>
     public event EventHandler? OpenRequested;
 
+    /// <summary>«Настройки» из меню.</summary>
+    public event EventHandler? SettingsRequested;
+
     /// <summary>«Выход» из меню - настоящее завершение приложения.</summary>
     public event EventHandler? ExitRequested;
 
@@ -23,6 +26,7 @@ public sealed class TrayIcon : IDisposable
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("Открыть", null, (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add("Настройки...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add("Выход", null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _notifyIcon = new NotifyIcon

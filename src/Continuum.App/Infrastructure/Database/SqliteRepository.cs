@@ -343,6 +343,27 @@ public sealed class SqliteRepository : IRepository
         return row.Id;
     }
 
+    public async Task<IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default)
+    {
+        await using var db = new ContinuumDbContext(_connections);
+        var rows = await db.OpenFiles
+            .AsNoTracking()
+            .Where(x => x.SnapshotId == snapshotId)
+            .OrderBy(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        return rows.Select(r => new OpenFile(
+            Id: r.Id,
+            SnapshotId: r.SnapshotId,
+            Path: r.Path,
+            ProjectId: r.ProjectId,
+            ApplicationId: r.ApplicationId,
+            Line: r.Line,
+            LastModified: r.LastModified is { } lastModified ? Ts(lastModified) : null,
+            Source: r.Source)).ToList();
+    }
+
     public async Task<Snapshot?> GetLastSnapshotAsync(long sessionId, CancellationToken ct = default)
     {
         await using var db = new ContinuumDbContext(_connections);
@@ -495,6 +516,79 @@ public sealed class SqliteRepository : IRepository
         }
 
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    // ---------------- Обслуживание данных ----------------
+
+    public async Task<ApplicationInfo?> GetApplicationAsync(long applicationId, CancellationToken ct = default)
+    {
+        await using var db = new ContinuumDbContext(_connections);
+        var row = await db.Applications
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == applicationId, ct)
+            .ConfigureAwait(false);
+        if (row is null)
+        {
+            return null;
+        }
+
+        return new ApplicationInfo(
+            Id: row.Id,
+            Name: row.Name,
+            ExePath: string.IsNullOrEmpty(row.ExePath) ? null : row.ExePath,
+            AdapterKey: row.AdapterKey,
+            FirstSeen: row.FirstSeen is { } firstSeen ? Ts(firstSeen) : DateTimeOffset.UnixEpoch,
+            LastSeen: row.LastSeen is { } lastSeen ? Ts(lastSeen) : DateTimeOffset.UnixEpoch);
+    }
+
+    public async Task<int> DeleteSessionsOlderThanAsync(DateTimeOffset threshold, CancellationToken ct = default)
+    {
+        await using var db = new ContinuumDbContext(_connections);
+        var cutoff = Unix(threshold);
+        var sessionIds = await db.Sessions
+            .AsNoTracking()
+            .Where(x => x.EndedAt != null && x.EndedAt < cutoff)
+            .Select(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        if (sessionIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var snapshotIds = await db.Snapshots
+            .AsNoTracking()
+            .Where(x => sessionIds.Contains(x.SessionId))
+            .Select(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        if (snapshotIds.Count > 0)
+        {
+            var planIds = await db.RestorePlans
+                .AsNoTracking()
+                .Where(x => snapshotIds.Contains(x.SnapshotId))
+                .Select(x => x.Id)
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            if (planIds.Count > 0)
+            {
+                await db.RestoreSteps.Where(x => planIds.Contains(x.PlanId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            }
+
+            await db.RestorePlans.Where(x => snapshotIds.Contains(x.SnapshotId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await db.GitStates.Where(x => snapshotIds.Contains(x.SnapshotId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await db.Terminals.Where(x => snapshotIds.Contains(x.SnapshotId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await db.OpenFiles.Where(x => snapshotIds.Contains(x.SnapshotId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await db.BrowserTabs.Where(x => snapshotIds.Contains(x.SnapshotId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await db.Snapshots.Where(x => snapshotIds.Contains(x.Id)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        }
+
+        await db.Events.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        await db.FileActivity.Where(x => sessionIds.Contains(x.SessionId)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        await db.Sessions.Where(x => sessionIds.Contains(x.Id)).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        return sessionIds.Count;
     }
 
     // ---------------- Маппинг ----------------

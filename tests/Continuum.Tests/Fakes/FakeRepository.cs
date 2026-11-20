@@ -120,8 +120,48 @@ internal sealed class FakeRepository : IRepository
 
     public Task<long> UpsertApplicationAsync(ApplicationInfo application, CancellationToken ct = default)
     {
-        Applications.Add(application);
-        return Task.FromResult(_nextId++);
+        var exe = application.ExePath ?? string.Empty;
+        var existing = Applications.FindIndex(a =>
+            string.Equals(a.Name, application.Name, StringComparison.Ordinal)
+            && string.Equals(a.ExePath ?? string.Empty, exe, StringComparison.Ordinal));
+        if (existing >= 0)
+        {
+            Applications[existing] = Applications[existing] with
+            {
+                AdapterKey = application.AdapterKey ?? Applications[existing].AdapterKey,
+                LastSeen = application.LastSeen,
+            };
+            return Task.FromResult(Applications[existing].Id);
+        }
+
+        var created = application with { Id = _nextId++ };
+        Applications.Add(created);
+        return Task.FromResult(created.Id);
+    }
+
+    public Task<IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<OpenFile>>(
+            Snapshots.Where(s => s.Id == snapshotId).SelectMany(s => s.OpenFiles).ToList());
+
+    public Task<ApplicationInfo?> GetApplicationAsync(long applicationId, CancellationToken ct = default)
+        => Task.FromResult(Applications.FirstOrDefault(a => a.Id == applicationId));
+
+    public Task<int> DeleteSessionsOlderThanAsync(DateTimeOffset threshold, CancellationToken ct = default)
+    {
+        var victims = Sessions.Where(s => s.EndedAt is { } endedAt && endedAt < threshold).ToList();
+        if (victims.Count == 0)
+        {
+            return Task.FromResult(0);
+        }
+
+        var ids = victims.Select(s => s.Id).ToHashSet();
+        Events.RemoveAll(e => ids.Contains(e.SessionId));
+        FileActivities.RemoveAll(f => ids.Contains(f.SessionId));
+        var snapshotIds = Snapshots.Where(s => ids.Contains(s.SessionId)).Select(s => s.Id).ToHashSet();
+        Snapshots.RemoveAll(s => ids.Contains(s.SessionId));
+        _restorePlans.RemoveAll(p => snapshotIds.Contains(p.SnapshotId));
+        Sessions.RemoveAll(s => ids.Contains(s.Id));
+        return Task.FromResult(victims.Count);
     }
 
     public Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default)

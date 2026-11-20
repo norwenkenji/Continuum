@@ -37,6 +37,7 @@ public sealed class MainViewModel : ViewModelBase
         Timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         RestorePlan = restorePlan ?? throw new ArgumentNullException(nameof(restorePlan));
         RefreshCommand = new RelayCommand(async () => await RefreshAsync());
+        OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
     }
 
     /// <summary>Хронология последней сессии (шаг 8).</summary>
@@ -88,6 +89,12 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     public RelayCommand RefreshCommand { get; }
+
+    /// <summary>Открыть окно настроек (окно создаёт представление, не модель).</summary>
+    public RelayCommand OpenSettingsCommand { get; }
+
+    /// <summary>Запрос окна настроек - обрабатывается MainWindow.</summary>
+    public event EventHandler? SettingsRequested;
 
     /// <summary>Собирает сводку, вердикт и хронологию заново. Никогда не бросает.</summary>
     public async Task RefreshAsync(CancellationToken ct = default)

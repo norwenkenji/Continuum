@@ -41,7 +41,11 @@ public class RestorePlanViewModelTests : IDisposable
             new StubClock(),
             NullLogger<RestoreService>.Instance,
             new StubRunningProcessCheck());
-        _viewModel = new RestorePlanViewModel(service);
+        var composer = new RestorePlanComposer(
+            _repository,
+            new StubResolver(),
+            NullLogger<RestorePlanComposer>.Instance);
+        _viewModel = new RestorePlanViewModel(_repository, service, composer);
     }
 
     [Fact]

@@ -114,11 +114,12 @@ public sealed class RestoreService
     public async Task<RestorePlan> BuildPlanAsync(
         long? sessionId = null,
         IReadOnlyList<RestoreHostApp>? hosts = null,
+        IReadOnlySet<string>? filesCoveredByHosts = null,
         CancellationToken ct = default)
     {
         try
         {
-            return await BuildPlanCoreAsync(sessionId, hosts, ct).ConfigureAwait(false);
+            return await BuildPlanCoreAsync(sessionId, hosts, filesCoveredByHosts, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -161,6 +162,7 @@ public sealed class RestoreService
     private async Task<RestorePlan> BuildPlanCoreAsync(
         long? sessionId,
         IReadOnlyList<RestoreHostApp>? hosts,
+        IReadOnlySet<string>? filesCoveredByHosts,
         CancellationToken ct)
     {
         long effectiveSessionId;
@@ -219,6 +221,7 @@ public sealed class RestoreService
             .GroupBy(activity => activity.Path, StringComparer.OrdinalIgnoreCase)
             .Select(group => new { Path = group.Key, LastTs = group.Max(activity => activity.Ts) })
             .OrderByDescending(item => item.LastTs)
+            .Where(item => filesCoveredByHosts is null || !filesCoveredByHosts.Contains(item.Path))
             .Take(MaxFileSteps)
             .Where(item => File.Exists(item.Path))
             .ToList();

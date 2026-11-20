@@ -1,0 +1,123 @@
+<Window x:Class="Continuum.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки - Continuum" Height="620" Width="720"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="НАСТРОЙКИ ЗАПИСИ И ХРАНЕНИЯ" FontWeight="Bold" FontSize="15"/>
+            <TextBlock Text="Изменения применяются сразу после сохранения - перезапуск не нужен."
+                       FontSize="12" Foreground="Gray" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Исключения приложений -->
+                <TextBlock Text="Не записывать приложения" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Text="{Binding NewApplication, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="4" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Добавить" Command="{Binding AddApplicationCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                    <Button Grid.Column="2" Content="Удалить" Command="{Binding RemoveApplicationCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                </Grid>
+                <ListBox ItemsSource="{Binding Applications}" SelectedItem="{Binding SelectedApplication}"
+                         Height="90" Margin="0,6,0,14" FontSize="12"/>
+
+                <!-- Исключения каталогов -->
+                <TextBlock Text="Не записывать каталоги (путь и всё внутри)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Text="{Binding NewDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="4" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Добавить" Command="{Binding AddDirectoryCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                    <Button Grid.Column="2" Content="Удалить" Command="{Binding RemoveDirectoryCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                </Grid>
+                <ListBox ItemsSource="{Binding Directories}" SelectedItem="{Binding SelectedDirectory}"
+                         Height="90" Margin="0,6,0,14" FontSize="12"/>
+
+                <!-- Не записывать никогда -->
+                <TextBlock Text="Не записывать никогда" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0" ItemsSource="{Binding RuleKinds}" SelectedItem="{Binding NewRuleKind}"
+                              DisplayMemberPath="Title" Margin="0,0,6,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding NewRuleValue, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="4" VerticalAlignment="Center"/>
+                    <Button Grid.Column="2" Content="Добавить" Command="{Binding AddRuleCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                    <Button Grid.Column="3" Content="Удалить" Command="{Binding RemoveRuleCommand}"
+                            Padding="10,3" Margin="6,0,0,0"/>
+                </Grid>
+                <ListBox ItemsSource="{Binding NeverRules}" SelectedItem="{Binding SelectedRule}"
+                         Height="90" Margin="0,6,0,4" FontSize="12">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Display}"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Text="Хост действует, когда URL реально получен; подстрока проверяется по пути и URL."
+                           FontSize="11" Foreground="Gray" Margin="0,0,0,14"/>
+
+                <!-- Хранение и сессия -->
+                <TextBlock Text="Хранение и сессия" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="70"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="70"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Срок хранения, дней:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding RetentionDays, UpdateSourceTrigger=PropertyChanged}" Padding="4"/>
+                    <TextBlock Grid.Column="2" Text="(0 - бессрочно)   " Foreground="Gray" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="3" Text="Порог простоя, мин:" VerticalAlignment="Center" Margin="12,0,8,0"/>
+                    <TextBox Grid.Column="4" Text="{Binding IdleThresholdMinutes, UpdateSourceTrigger=PropertyChanged}" Padding="4"/>
+                    <TextBlock Grid.Column="5" Text="(1-240)" Foreground="Gray" VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="Удалить все данные" Command="{Binding DeleteAllDataCommand}"
+                    Padding="12,5" Foreground="#B91C1C"/>
+            <TextBlock Grid.Column="1" Text="{Binding StatusText}" VerticalAlignment="Center"
+                       Margin="12,0,0,0" Foreground="Gray" FontSize="12"/>
+            <Button Grid.Column="2" Content="Сохранить" Command="{Binding SaveCommand}"
+                    Padding="16,5" Margin="0,0,8,0"/>
+            <Button Grid.Column="3" Content="Закрыть" Click="OnClose" Padding="16,5" IsCancel="True"/>
+        </Grid>
+    </Grid>
+</Window>

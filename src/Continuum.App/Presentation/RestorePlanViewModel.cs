@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using Continuum.Core.Domain;
+using Continuum.Core.Interfaces;
 using Continuum.Restore;
 
 namespace Continuum.Presentation;
@@ -43,14 +44,21 @@ public sealed class RestoreStepViewModel
 /// </summary>
 public sealed class RestorePlanViewModel : ViewModelBase
 {
+    private readonly IRepository _repository;
     private readonly RestoreService _restoreService;
+    private readonly RestorePlanComposer _composer;
     private RestorePlan? _lastPlan;
     private bool _isBusy;
     private string _planSummary = "План ещё не построен";
 
-    public RestorePlanViewModel(RestoreService restoreService)
+    public RestorePlanViewModel(
+        IRepository repository,
+        RestoreService restoreService,
+        RestorePlanComposer composer)
     {
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _restoreService = restoreService ?? throw new ArgumentNullException(nameof(restoreService));
+        _composer = composer ?? throw new ArgumentNullException(nameof(composer));
         BuildCommand = new RelayCommand(async () => await BuildPlanAsync(), () => !IsBusy);
         DryRunCommand = new RelayCommand(async () => await RunPlanAsync(dryRun: true), () => !IsBusy);
         ExecuteCommand = new RelayCommand(async () => await RunPlanAsync(dryRun: false), () => !IsBusy);
@@ -84,7 +92,7 @@ public sealed class RestorePlanViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            _lastPlan = await _restoreService.BuildPlanAsync();
+            _lastPlan = await ComposeAndBuildAsync();
             RenderPlan(_lastPlan);
         }
         catch
@@ -104,7 +112,7 @@ public sealed class RestorePlanViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            var plan = _lastPlan ?? await _restoreService.BuildPlanAsync();
+            var plan = _lastPlan ?? await ComposeAndBuildAsync();
             _lastPlan = await _restoreService.ExecutePlanAsync(plan, dryRun);
             RenderPlan(_lastPlan);
         }
@@ -116,6 +124,23 @@ public sealed class RestorePlanViewModel : ViewModelBase
         {
             IsBusy = false;
         }
+    }
+
+    /// <summary>
+    /// План из фактов сессии (ФТ-6.1): хосты - приложения сессии и
+    /// code -g «путь:строка» для открытых файлов с позицией; файлы,
+    /// которые откроет хост, шагами OpenFile не дублируются.
+    /// </summary>
+    private async Task<RestorePlan> ComposeAndBuildAsync()
+    {
+        var session = await _repository.GetLastSessionAsync();
+        if (session is null)
+        {
+            return await _restoreService.BuildPlanAsync();
+        }
+
+        var inputs = await _composer.ComposeAsync(session.Id);
+        return await _restoreService.BuildPlanAsync(session.Id, inputs.Hosts, inputs.FilesCoveredByHosts);
     }
 
     private void RenderPlan(RestorePlan plan)
