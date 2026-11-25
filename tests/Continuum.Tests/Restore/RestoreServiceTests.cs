@@ -326,6 +326,46 @@ public class RestoreServiceTests : IDisposable
         Assert.Equal(RestorePlanStatus.Success, result.Status);
     }
 
+    [Fact]
+    public async Task Open_url_steps_are_appended_after_files_and_deduplicated()
+    {
+        var repository = new FakeRepository();
+        SeedSessionWithSnapshot(repository);
+        var file = CreateFile("a.txt");
+        repository.FileActivities.Add(MakeActivity(1, file, minute: 1));
+        var (service, _) = CreateServiceWithLauncher(repository);
+
+        var plan = await service.BuildPlanAsync(openUrls:
+            ["https://a.test/", " HTTPS://A.TEST/ ", "  ", "https://b.test/doc"]);
+
+        // 1 шаг файла + 2 URL (дубликат без учёта регистра и пустые схлопнулись)
+        Assert.Equal(3, plan.Steps.Count);
+        Assert.Equal(RestoreStrategyKind.OpenFile, plan.Steps[0].Strategy);
+        Assert.Equal(RestoreStrategyKind.OpenUrl, plan.Steps[1].Strategy);
+        Assert.Equal("https://a.test/", plan.Steps[1].Target);
+        Assert.Equal("https://b.test/doc", plan.Steps[2].Target);
+        Assert.Equal(3, plan.Steps[2].Seq); // сквозная нумерация
+    }
+
+    [Fact]
+    public async Task Open_url_step_launches_url_and_reports_failure()
+    {
+        var repository = new FakeRepository();
+        SeedSessionWithSnapshot(repository);
+        var (service, launcher) = CreateServiceWithLauncher(repository);
+
+        var plan = await service.BuildPlanAsync(openUrls: ["https://a.test/", "https://b.test/"]);
+        launcher.ShouldStart = target => target != "https://b.test/";
+        var result = await service.ExecutePlanAsync(plan, dryRun: false);
+
+        Assert.Equal(RestoreStepResult.Success, result.Steps[0].Result);
+        Assert.Equal("https://a.test/", launcher.Calls[0].FileName);
+        Assert.Null(launcher.Calls[0].Arguments); // URL открывается сам по себе
+        Assert.Equal(RestoreStepResult.Failed, result.Steps[1].Result);
+        Assert.Contains("Не удалось открыть URL", result.Steps[1].Error);
+        Assert.Equal(RestorePlanStatus.Partial, result.Status);
+    }
+
     private RestoreService CreateService(FakeRepository repository) =>
         CreateServiceWithLauncher(repository).Service;
 

@@ -92,7 +92,8 @@ public static class CompositionRoot
         services.AddSingleton<IObservationSource, Collectors.RecentFilesMonitor>();
 
         // Снапшоты и полные границы сессии (шаг 4); с шага 7 снапшот включает
-        // открытые файлы (IOpenFilesProvider - адаптер VS Code)
+        // открытые файлы (IOpenFilesProvider - адаптер VS Code), с шага 10 -
+        // терминалы (ITerminalsProvider) и вкладки браузера (IBrowserTabsProvider)
         services.AddSingleton<Snapshots.Snapshotter>(sp => new Snapshots.Snapshotter(
             sp.GetRequiredService<IRepository>(),
             sp.GetRequiredService<ISessionContext>(),
@@ -102,7 +103,10 @@ public static class CompositionRoot
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<ILogger<Snapshots.Snapshotter>>(),
             openFiles: sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>(),
-            projectResolver: sp.GetRequiredService<IProjectResolver>()));
+            projectResolver: sp.GetRequiredService<IProjectResolver>(),
+            terminals: sp.GetRequiredService<Collectors.TerminalCollector>(),
+            browserTabs: sp.GetRequiredService<Collectors.ChromeTabCollector>(),
+            sanitizer: sp.GetRequiredService<ISanitizer>()));
         services.AddSingleton<ISnapshotter>(sp => sp.GetRequiredService<Snapshots.Snapshotter>());
         services.AddSingleton<IIdleTimeSource, IdleTimeSource>();
         services.AddSingleton<SessionSupervisor>(sp => new SessionSupervisor(
@@ -128,6 +132,13 @@ public static class CompositionRoot
             sp.GetRequiredService<IProjectResolver>()));
         services.AddSingleton<IObservationSource>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
         services.AddSingleton<IOpenFilesProvider>(sp => sp.GetRequiredService<Adapters.VSCode.VSCodeAdapter>());
+
+        // Терминалы и вкладки браузера (шаг 10, data-sources §5 и §6):
+        // опрашиваются Snapshotter'ом на момент снапшота, не в цикле
+        services.AddSingleton<Collectors.TerminalCollector>();
+        services.AddSingleton<ITerminalsProvider>(sp => sp.GetRequiredService<Collectors.TerminalCollector>());
+        services.AddSingleton<Collectors.ChromeTabCollector>();
+        services.AddSingleton<IBrowserTabsProvider>(sp => sp.GetRequiredService<Collectors.ChromeTabCollector>());
 
         // Демо-режим (шаг 8): сеятель синтетической сессии в continuum.demo.db
         services.AddSingleton<Demo.DemoSeeder>();

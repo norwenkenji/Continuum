@@ -76,6 +76,26 @@ public class SnapshotterTests
         public string? ResolveRoot(string path) => Map.TryGetValue(path, out var root) ? root : null;
     }
 
+    private sealed class StubTerminals : ITerminalsProvider
+    {
+        public List<TerminalState> Rows { get; } = [];
+        public Task<IReadOnlyList<TerminalState>> GetTerminalsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<TerminalState>>(Rows);
+    }
+
+    private sealed class StubBrowserTabs : IBrowserTabsProvider
+    {
+        public List<BrowserTabInfo> Tabs { get; } = [];
+        public Task<IReadOnlyList<BrowserTabInfo>> GetBrowserTabsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<BrowserTabInfo>>(Tabs);
+    }
+
+    private sealed class StubSanitizer : ISanitizer
+    {
+        public Func<string, ObservableKind, string> Rule { get; set; } = (v, _) => v;
+        public string Sanitize(string value, ObservableKind kind) => Rule(value, kind);
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
 
     private static (Snapshotter, FakeRepository, StubRegistry, StubGit, StubPrivacy) Create(long sessionId = 7)
@@ -141,6 +161,92 @@ public class SnapshotterTests
         await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
 
         Assert.Empty(Assert.Single(repo.Snapshots).OpenFiles);
+    }
+
+    [Fact]
+    public async Task Snapshot_includes_terminals_with_cwd_privacy_filter()
+    {
+        var repo = new FakeRepository();
+        var registry = new StubRegistry();
+        var privacy = new StubPrivacy
+        {
+            Rule = o => o.Kind != ObservableKind.Cwd || !o.Value!.Contains("secret"),
+        };
+        var terminals = new StubTerminals();
+        terminals.Rows.Add(new TerminalState(0, 0, true, "WindowsTerminal", "pwsh", "c:/work/proj", TerminalSource.Peb));
+        terminals.Rows.Add(new TerminalState(0, 0, true, "cmd", "cmd", "c:/secret-dir", TerminalSource.Peb));
+        terminals.Rows.Add(new TerminalState(0, 0, true, "cmd", null, null, TerminalSource.Unknown));
+        var snapshotter = new Snapshotter(
+            repo, new StubSession(7), registry, new StubGit(), privacy, new FixedClock(Now),
+            NullLogger<Snapshotter>.Instance, terminals: terminals);
+
+        await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
+
+        var snapshot = Assert.Single(repo.Snapshots);
+        Assert.Equal(2, snapshot.Terminals.Count); // терминал в исключённом каталоге отброшен
+        Assert.Contains(snapshot.Terminals, t => t.Host == "WindowsTerminal" && t.Cwd == "c:/work/proj" && t.Source == TerminalSource.Peb);
+        Assert.Contains(snapshot.Terminals, t => t.Cwd is null && t.Source == TerminalSource.Unknown); // cwd не прочитан - строка честная
+    }
+
+    [Fact]
+    public async Task Snapshot_includes_browser_tabs_with_privacy_sanitizing_and_app()
+    {
+        var repo = new FakeRepository();
+        var registry = new StubRegistry();
+        // исключённое приложение-браузер - вкладки не пишутся вовсе (§5.4)
+        var privacy = new StubPrivacy
+        {
+            Rule = o => !string.Equals(o.ApplicationName, "chrome", StringComparison.OrdinalIgnoreCase),
+        };
+        var tabs = new StubBrowserTabs();
+        tabs.Tabs.Add(new BrowserTabInfo("chrome", @"C:\Chrome\chrome.exe", "Заголовок", null, false, true, BrowserTabSource.WindowTitle));
+        tabs.Tabs.Add(new BrowserTabInfo("msedge", @"C:\Edge\msedge.exe", "Страница", "https://x.test/page?token=q", true, false, BrowserTabSource.Uia));
+        var sanitizer = new StubSanitizer
+        {
+            Rule = (v, kind) => kind == ObservableKind.Url ? "https://x.test/page?token=***" : v,
+        };
+        var snapshotter = new Snapshotter(
+            repo, new StubSession(7), registry, new StubGit(), privacy, new FixedClock(Now),
+            NullLogger<Snapshotter>.Instance, browserTabs: tabs, sanitizer: sanitizer);
+
+        await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
+
+        var snapshot = Assert.Single(repo.Snapshots);
+        var tab = Assert.Single(snapshot.BrowserTabs); // chrome отброшен целиком
+        Assert.Equal("Страница", tab.Title);
+        Assert.Equal("https://x.test/page?token=***", tab.Url); // URL санитизирован
+        Assert.True(tab.UrlAvailable);
+        Assert.False(tab.IsActive);
+        Assert.Equal(BrowserTabSource.Uia, tab.Source);
+
+        // приложение браузера апсертнуто, вкладка связана с ним
+        var app = Assert.Single(repo.Applications, a => a.Name == "msedge");
+        Assert.Equal(app.Id, tab.ApplicationId);
+    }
+
+    [Fact]
+    public async Task Browser_tab_dropped_when_url_never_recorded()
+    {
+        var repo = new FakeRepository();
+        var privacy = new StubPrivacy
+        {
+            Rule = o => o.Kind != ObservableKind.Url || !o.Value!.Contains("bank"),
+        };
+        var tabs = new StubBrowserTabs();
+        tabs.Tabs.Add(new BrowserTabInfo("chrome", null, "Банк", "https://bank.example.com/", true, true, BrowserTabSource.Uia));
+        tabs.Tabs.Add(new BrowserTabInfo("chrome", null, "Почта", null, false, false, BrowserTabSource.WindowTitle));
+        var snapshotter = new Snapshotter(
+            repo, new StubSession(7), new StubRegistry(), new StubGit(), privacy, new FixedClock(Now),
+            NullLogger<Snapshotter>.Instance, browserTabs: tabs);
+
+        await snapshotter.SaveSnapshotAsync(SnapshotReason.Timer);
+
+        // вкладка с URL хоста из «не записывать никогда» отброшена целиком,
+        // вкладка без URL (title-only) осталась
+        var tab = Assert.Single(Assert.Single(repo.Snapshots).BrowserTabs);
+        Assert.Equal("Почта", tab.Title);
+        Assert.Null(tab.Url);
+        Assert.False(tab.UrlAvailable);
     }
 
     [Fact]

@@ -115,11 +115,12 @@ public sealed class RestoreService
         long? sessionId = null,
         IReadOnlyList<RestoreHostApp>? hosts = null,
         IReadOnlySet<string>? filesCoveredByHosts = null,
+        IReadOnlyList<string>? openUrls = null,
         CancellationToken ct = default)
     {
         try
         {
-            return await BuildPlanCoreAsync(sessionId, hosts, filesCoveredByHosts, ct).ConfigureAwait(false);
+            return await BuildPlanCoreAsync(sessionId, hosts, filesCoveredByHosts, openUrls, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -163,6 +164,7 @@ public sealed class RestoreService
         long? sessionId,
         IReadOnlyList<RestoreHostApp>? hosts,
         IReadOnlySet<string>? filesCoveredByHosts,
+        IReadOnlyList<string>? openUrls,
         CancellationToken ct)
     {
         long effectiveSessionId;
@@ -238,6 +240,28 @@ public sealed class RestoreService
                 Result: null,
                 Error: null,
                 DurationMs: null));
+        }
+
+        // URL вкладок (шаг 10): хост уже открыл браузер или запустится
+        // ассоциацией - шаги OpenUrl идут после файлов, без дублей
+        if (openUrls is not null)
+        {
+            foreach (var url in openUrls
+                         .Where(u => !string.IsNullOrWhiteSpace(u))
+                         .Select(u => u.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                steps.Add(new RestoreStep(
+                    Id: 0,
+                    PlanId: 0,
+                    Seq: seq++,
+                    Strategy: RestoreStrategyKind.OpenUrl,
+                    Target: url,
+                    ArgsJson: null,
+                    Result: null,
+                    Error: null,
+                    DurationMs: null));
+            }
         }
 
         return new RestorePlan(
@@ -333,7 +357,8 @@ public sealed class RestoreService
             {
                 RestoreStrategyKind.StartProcess => ExecuteStartProcess(step),
                 RestoreStrategyKind.OpenFile => ExecuteOpenFile(step),
-                // OpenUrl/ExecuteCommand/CustomAdapter появятся после MVP
+                RestoreStrategyKind.OpenUrl => ExecuteOpenUrl(step),
+                // ExecuteCommand/CustomAdapter появятся после MVP
                 _ => (RestoreStepResult.Skipped, "Стратегия не поддерживается в MVP"),
             };
             stopwatch.Stop();
@@ -344,6 +369,25 @@ public sealed class RestoreService
             // Падение шага не отменяет остальные - фиксируем и идём дальше
             return step with { Result = RestoreStepResult.Failed, Error = ex.Message, DurationMs = null };
         }
+    }
+
+    /// <summary>
+    /// Открытие URL (шаг 10, data-sources §5.6): UseShellExecute открывает
+    /// системный браузер по умолчанию. Идемпотентность на уровне вкладок
+    /// не гарантируется - зашитый компромисс MVP (§5.6).
+    /// </summary>
+    private (RestoreStepResult Result, string? Error) ExecuteOpenUrl(RestoreStep step)
+    {
+        var url = step.Target?.Trim();
+        if (string.IsNullOrEmpty(url))
+        {
+            return (RestoreStepResult.Failed, "Не задан URL");
+        }
+
+        var launched = _launcher.TryStart(url);
+        return launched
+            ? (RestoreStepResult.Success, null)
+            : (RestoreStepResult.Failed, $"Не удалось открыть URL: {url}");
     }
 
     private (RestoreStepResult Result, string? Error) ExecuteStartProcess(RestoreStep step)

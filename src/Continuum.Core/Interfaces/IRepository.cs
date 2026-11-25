@@ -72,6 +72,9 @@ public interface IRepository
     /// <summary>Сохраняет снапшот со всеми дочерними наборами в одной транзакции. Возвращает id снапшота.</summary>
     Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default);
 
+    /// <summary>Вкладки браузера снапшота - для хостов плана восстановления (шаг 10).</summary>
+    Task<IReadOnlyList<BrowserTab>> GetSnapshotBrowserTabsAsync(long snapshotId, CancellationToken ct = default);
+
     /// <summary>Открытые файлы снапшота с позициями - для хостов плана восстановления.</summary>
     Task<IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default);
 

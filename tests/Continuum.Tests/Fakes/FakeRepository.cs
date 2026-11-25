@@ -164,6 +164,10 @@ internal sealed class FakeRepository : IRepository
         return Task.FromResult(victims.Count);
     }
 
+    public Task<IReadOnlyList<BrowserTab>> GetSnapshotBrowserTabsAsync(long snapshotId, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<BrowserTab>>(
+            Snapshots.Where(s => s.Id == snapshotId).SelectMany(s => s.BrowserTabs).ToList());
+
     public Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default)
     {
         var saved = snapshot with { Id = _nextId++ };

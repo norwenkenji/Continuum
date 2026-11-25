@@ -292,5 +292,6 @@ public class StoppedEngineTests
         public Task<ApplicationInfo?> GetApplicationAsync(long applicationId, CancellationToken ct = default) => _inner.GetApplicationAsync(applicationId, ct);
         public Task<int> DeleteSessionsOlderThanAsync(DateTimeOffset threshold, CancellationToken ct = default) => _inner.DeleteSessionsOlderThanAsync(threshold, ct);
         public Task<System.Collections.Generic.IReadOnlyList<OpenFile>> GetSnapshotOpenFilesAsync(long snapshotId, CancellationToken ct = default) => _inner.GetSnapshotOpenFilesAsync(snapshotId, ct);
+        public Task<System.Collections.Generic.IReadOnlyList<BrowserTab>> GetSnapshotBrowserTabsAsync(long snapshotId, CancellationToken ct = default) => _inner.GetSnapshotBrowserTabsAsync(snapshotId, ct);
     }
 }

@@ -77,7 +77,7 @@ public class RetentionServiceTests
         Assert.DoesNotContain(repository.Snapshots, s => s.SessionId == oldId);
         Assert.DoesNotContain(repository.RestorePlans, p => p.SnapshotId == 0);
         Assert.Single(repository.RestorePlans); // план свежей сессии на месте
-        Assert.NotEmpty(repository.Events.Where(e => e.SessionId == freshId));
+        Assert.Contains(repository.Events, e => e.SessionId == freshId);
     }
 
     [Fact]

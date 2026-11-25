@@ -35,6 +35,9 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
     private readonly TimeSpan _interval;
     private readonly IOpenFilesProvider? _openFiles;
     private readonly IProjectResolver? _projectResolver;
+    private readonly ITerminalsProvider? _terminals;
+    private readonly IBrowserTabsProvider? _browserTabs;
+    private readonly ISanitizer? _sanitizer;
     private readonly SemaphoreSlim _saveLock = new(1, 1);
 
     private CancellationTokenSource? _cts;
@@ -50,7 +53,10 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         ILogger<Snapshotter> logger,
         TimeSpan? interval = null,
         IOpenFilesProvider? openFiles = null,
-        IProjectResolver? projectResolver = null)
+        IProjectResolver? projectResolver = null,
+        ITerminalsProvider? terminals = null,
+        IBrowserTabsProvider? browserTabs = null,
+        ISanitizer? sanitizer = null)
     {
         _repository = repository;
         _session = session;
@@ -62,6 +68,9 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         _interval = interval ?? DefaultInterval;
         _openFiles = openFiles;
         _projectResolver = projectResolver;
+        _terminals = terminals;
+        _browserTabs = browserTabs;
+        _sanitizer = sanitizer;
     }
 
     public void Start()
@@ -154,11 +163,15 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
             }
 
             var openFiles = await CollectOpenFilesAsync(now, ct).ConfigureAwait(false);
+            var terminalStates = await CollectTerminalsAsync(now, ct).ConfigureAwait(false);
+            var browserTabs = await CollectBrowserTabsAsync(now, ct).ConfigureAwait(false);
 
             var snapshot = new Snapshot(0, sessionId, now, reason, CurrentSchemaVersion, BuildSummaryJson(gitStates))
             {
                 GitStates = gitStates,
                 OpenFiles = openFiles,
+                Terminals = terminalStates,
+                BrowserTabs = browserTabs,
             };
             var id = await _repository.SaveSnapshotAsync(snapshot, ct).ConfigureAwait(false);
             _logger.LogDebug("Снапшот {Id} ({Reason}): {Count} проектов", id, reason, gitStates.Count);
@@ -215,6 +228,124 @@ public sealed class Snapshotter : ISnapshotter, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Не удалось собрать открытые файлы - снапшот без open_files");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Терминалы для снапшота (шаг 10): провайдер опрашивается на момент
+    /// снапшота; Cwd проходит privacy-фильтр (исключённые каталоги и правила),
+    /// заголовок-хост - проба приложения (исключённый браузер терминала
+    /// не пишется). Провайдера нет или терминалов нет - снапшот без terminals.
+    /// </summary>
+    private async Task<List<TerminalState>> CollectTerminalsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var result = new List<TerminalState>();
+        if (_terminals is null)
+        {
+            return result;
+        }
+
+        try
+        {
+            foreach (var terminal in await _terminals.GetTerminalsAsync(ct).ConfigureAwait(false))
+            {
+                if (string.IsNullOrWhiteSpace(terminal.Host))
+                {
+                    continue;
+                }
+
+                // Cwd - путь: исключённые каталоги и правила «не записывать никогда»
+                if (!string.IsNullOrEmpty(terminal.Cwd))
+                {
+                    var probe = new Observable(
+                        ObservableKind.Cwd, terminal.Cwd, null, terminal.Host, null, now, null);
+                    if (!_privacy.Allow(probe))
+                    {
+                        continue; // терминал в исключённом каталоге - не записываем строку
+                    }
+                }
+
+                result.Add(terminal with { Id = 0, SnapshotId = 0 });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Не удалось собрать терминалы - снапшот без terminals");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Вкладки браузера для снапшота (шаг 10): заголовок и URL проходят
+    /// privacy-фильтр (исключённый браузер / BY_HOST-правила - вкладка
+    /// не пишется), URL - санитизация (секреты в query). Приложение браузера
+    /// апсертится в справочник для application_id. URL, который не прошёл
+    /// фильтр, не заменяется пустым - вкладка отбрасывается целиком
+    /// (privacy-first: недозапись лучше лишней записи).
+    /// </summary>
+    private async Task<List<BrowserTab>> CollectBrowserTabsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var result = new List<BrowserTab>();
+        if (_browserTabs is null)
+        {
+            return result;
+        }
+
+        try
+        {
+            foreach (var tab in await _browserTabs.GetBrowserTabsAsync(ct).ConfigureAwait(false))
+            {
+                if (string.IsNullOrWhiteSpace(tab.BrowserName))
+                {
+                    continue;
+                }
+
+                // Заголовок: проба окна (исключённое приложение - вкладки не пишутся)
+                if (!string.IsNullOrEmpty(tab.Title))
+                {
+                    var titleProbe = new Observable(
+                        ObservableKind.WindowTitle, tab.Title, null, tab.BrowserName, tab.ExePath, now, null);
+                    if (!_privacy.Allow(titleProbe))
+                    {
+                        continue;
+                    }
+                }
+
+                // URL: проба Url-вида - BY_HOST и BY_PATH_SUBSTR применяются
+                // только при реально полученном URL (§5.4)
+                string? url = null;
+                if (tab.UrlAvailable && !string.IsNullOrEmpty(tab.Url))
+                {
+                    var urlProbe = new Observable(
+                        ObservableKind.Url, tab.Url, null, tab.BrowserName, tab.ExePath, now, null);
+                    if (!_privacy.Allow(urlProbe))
+                    {
+                        continue;
+                    }
+
+                    url = _sanitizer?.Sanitize(tab.Url, ObservableKind.Url) ?? tab.Url;
+                }
+
+                var applicationId = await _repository.UpsertApplicationAsync(
+                    new ApplicationInfo(0, tab.BrowserName, tab.ExePath, null, now, now), ct).ConfigureAwait(false);
+
+                result.Add(new BrowserTab(
+                    Id: 0,
+                    SnapshotId: 0,
+                    ApplicationId: applicationId,
+                    Url: url,
+                    Title: tab.Title,
+                    UrlAvailable: url is not null,
+                    IsActive: tab.IsActive,
+                    Source: tab.Source));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Не удалось собрать вкладки браузера - снапшот без browser_tabs");
         }
 
         return result;

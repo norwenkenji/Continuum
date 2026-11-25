@@ -269,6 +269,27 @@ public sealed class SqliteRepository : IRepository
 
     // ---------------- Снапшоты ----------------
 
+    public async Task<IReadOnlyList<BrowserTab>> GetSnapshotBrowserTabsAsync(long snapshotId, CancellationToken ct = default)
+    {
+        await using var db = new ContinuumDbContext(_connections);
+        var rows = await db.BrowserTabs
+            .AsNoTracking()
+            .Where(x => x.SnapshotId == snapshotId)
+            .OrderBy(x => x.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        return rows.Select(r => new BrowserTab(
+            Id: r.Id,
+            SnapshotId: r.SnapshotId,
+            ApplicationId: r.ApplicationId,
+            Url: r.Url,
+            Title: r.Title,
+            UrlAvailable: r.UrlAvailable,
+            IsActive: r.IsActive,
+            Source: r.Source)).ToList();
+    }
+
     public async Task<long> SaveSnapshotAsync(Snapshot snapshot, CancellationToken ct = default)
     {
         await using var db = new ContinuumDbContext(_connections);

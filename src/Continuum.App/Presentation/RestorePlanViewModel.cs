@@ -140,7 +140,7 @@ public sealed class RestorePlanViewModel : ViewModelBase
         }
 
         var inputs = await _composer.ComposeAsync(session.Id);
-        return await _restoreService.BuildPlanAsync(session.Id, inputs.Hosts, inputs.FilesCoveredByHosts);
+        return await _restoreService.BuildPlanAsync(session.Id, inputs.Hosts, inputs.FilesCoveredByHosts, inputs.OpenUrls);
     }
 
     private void RenderPlan(RestorePlan plan)
