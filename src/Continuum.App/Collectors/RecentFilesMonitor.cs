@@ -39,6 +39,10 @@ public sealed class RecentFilesMonitor : IObservationSource, IDisposable
     // Целевой путь → mtime ярлыка при последней эмиссии (регистронезависимо: Windows)
     private readonly Dictionary<string, DateTime> _lastEmitted = new(StringComparer.OrdinalIgnoreCase);
 
+    // Путь ярлыка → mtime, для которого цель уже разрешалась. Дешёвый префильтр
+    // до COM: неизменившийся ярлык не резолвится повторно (бюджет ресурсов, §4.1).
+    private readonly Dictionary<string, DateTime> _resolvedFor = new(StringComparer.OrdinalIgnoreCase);
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _baselineTaken;
@@ -84,6 +88,7 @@ public sealed class RecentFilesMonitor : IObservationSource, IDisposable
 
             // Перезапуск - новая точка отсчёта: первый опрос снова базовый
             _lastEmitted.Clear();
+            _resolvedFor.Clear();
             _baselineTaken = false;
 
             var cts = new CancellationTokenSource();
@@ -173,6 +178,13 @@ public sealed class RecentFilesMonitor : IObservationSource, IDisposable
         {
             try
             {
+                // Префильтр до COM: ярлык не менялся - цель не переразрешаем
+                var linkMtime = File.GetLastWriteTime(link);
+                if (_resolvedFor.TryGetValue(link, out var resolvedMtime) && resolvedMtime == linkMtime)
+                {
+                    continue;
+                }
+
                 var target = _resolveTarget(link);
                 if (string.IsNullOrEmpty(target))
                 {
@@ -185,7 +197,8 @@ public sealed class RecentFilesMonitor : IObservationSource, IDisposable
                     continue;
                 }
 
-                var linkMtime = File.GetLastWriteTime(link);
+                _resolvedFor[link] = linkMtime;
+
                 if (isBaseline)
                 {
                     // Базовый снимок: запоминаем текущее состояние без эмиссий
